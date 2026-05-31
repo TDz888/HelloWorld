@@ -1,18 +1,7 @@
 #!/usr/bin/env python3
 """
-🚀 ULTIMATE TELEGRAM AI AGENT BOT v3.0
-Refactored: async-native, secure, beautiful, fault-tolerant.
-
-Changes from v2.0:
-- httpx.AsyncClient replaces requests (no more event-loop blocking)
-- Env-based config (no hardcoded secrets)
-- MarkdownV2 safe escaping + HTML fallback
-- Paginated /models with inline keyboard
-- Smart conversation truncation (char-based)
-- Global error handler + retry logic
-- GitHub auto-detect filename & extension
-- TTS robust error handling
-- Conversation manager class
+🚀 ULTIMATE TELEGRAM AI AGENT BOT v3.0 (Hardcoded Config Edition)
+Refactored: async-native, beautiful UI, fault-tolerant.
 """
 
 import os
@@ -37,78 +26,46 @@ from telegram.ext import (
 from telegram.constants import ParseMode
 
 # ═══════════════════════════════════════════════
-# CONFIGURATION (env vars — no hardcoded secrets!)
+# HARDCODED CONFIG
 # ═══════════════════════════════════════════════
 
-def _env(key: str, default: Optional[str] = None) -> str:
-    val = os.getenv(key, default)
-    if val is None:
-        raise ValueError(f"Missing required environment variable: {key}")
-    return val
+TELEGRAM_BOT_TOKEN = "8909561772:AAGQgxrbvXbi-RACF4_Z7iiS4R7NA6Za6wU"
+GITHUB_TOKEN       = "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"
+TTS_API_URL        = "https://ckey.vn/v1/audio/speech"
+DEFAULT_MODEL      = "🚀 GLM4.7"
+SYSTEM_PROMPT      = "You are a helpful, intelligent AI assistant. Respond concisely but accurately."
 
-TELEGRAM_BOT_TOKEN = _env("TELEGRAM_BOT_TOKEN")
-GITHUB_TOKEN       = _env("GITHUB_TOKEN")
-TTS_API_URL        = os.getenv("TTS_API", "https://ckey.vn/v1/audio/speech")
-DEFAULT_MODEL      = os.getenv("DEFAULT_MODEL", "🚀 GLM4.7")
-SYSTEM_PROMPT      = os.getenv("SYSTEM_PROMPT",
-    "You are a helpful, intelligent AI assistant. Respond concisely but accurately.")
-
-# AI Endpoints — override via AI_ENDPOINTS_JSON env if needed
-_AI_ENDPOINTS_RAW = os.getenv("AI_ENDPOINTS_JSON")
-if _AI_ENDPOINTS_RAW:
-    AI_ENDPOINTS: List[Dict[str, str]] = json.loads(_AI_ENDPOINTS_RAW)
-else:
-    AI_ENDPOINTS = [
-        {
-            "name": "Cocolink",
-            "base": "https://www.cocolink.ai/v1/chat/completions",
-            "key":  os.getenv("COCOLINK_KEY", "")
-        },
-        {
-            "name": "OpenCode",
-            "base": "https://opencode.ai/zen",
-            "key":  os.getenv("OPENCODE_KEY", "")
-        },
-        {
-            "name": "Ckey",
-            "base": "https://ckey.vn/v1/chat/completions",
-            "key":  os.getenv("CKEY_KEY", "")
-        }
-    ]
-
-# Filter out endpoints with empty keys
-AI_ENDPOINTS = [ep for ep in AI_ENDPOINTS if ep.get("key")]
-if not AI_ENDPOINTS:
-    raise RuntimeError("No AI endpoints configured. Set API keys via env vars.")
-
-# Available Models — override via MODELS_JSON env if needed
-_MODELS_RAW = os.getenv("MODELS_JSON")
-if _MODELS_RAW:
-    AVAILABLE_MODELS: Dict[str, str] = json.loads(_MODELS_RAW)
-else:
-    AVAILABLE_MODELS = {
-        "🚀 GLM4.7": "glm4.7",
-        "👨‍💻 Qwen3 Coder 480B": "qwen3-coder-480b-a35b-instruct",
-        "⚡ Mistral Medium 3.5": "mistral-medium-3.5-128b",
-        "🧠 Mistral Small 4": "mistral-small-4-119b-2603",
-        "🔥 DeepSeek V3": "deepseek-3.2",
-        "🐬 DeepSeek R1 Distill Qwen": "deepseek-r1-distill-qwen-32b",
-        "🏆 Mistral Large 3": "mistral-large-3-675b-instruct-2512",
-        "🤖 DeepSeek R1": "chieustudio/deepseek-r1",
-        "🤖 Kimi K2.6": "kimi-k2.6",
-        "🐉 GLM-5": "glm-5",
-        "🤔 Grok 4.20 Thinking": "grok-4.20-thinking",
-        "🤖 Grok 4.3": "grok-4.3",
-        "⚡ Grok 4.20 Fast": "grok-4.20-fast",
-        "🤖 GPT-5.4 Mini": "gpt-5.4-mini",
-        "🐉 GLM-5.1": "glm-5.1",
-        "🤖 Claude Haiku 4.5": "claude-haiku-4.5",
-        "🤖 GPT-5.2": "gpt-5.2",
-        "🤖 GPT-5.3 Codex": "gpt-5.3-codex",
-        "🤖 GPT-5.4": "gpt-5.4",
-        "🤖 Claude Sonnet 4.6": "claude-sonnet-4.6",
-        "🤖 Claude Sonnet 4.5": "claude-sonnet-4.5",
+AI_ENDPOINTS = [
+    {
+        "name": "Ckey",
+        "base": "https://ckey.vn/v1/chat/completions",
+        "key":  "sk-e317a237354192e26f99951f06e4882779e8a0e08e86d2f71242e8ff770bdf24"
     }
+]
+
+AVAILABLE_MODELS = {
+    "🚀 GLM4.7": "glm4.7",
+    "👨‍💻 Qwen3 Coder 480B": "qwen3-coder-480b-a35b-instruct",
+    "⚡ Mistral Medium 3.5": "mistral-medium-3.5-128b",
+    "🧠 Mistral Small 4": "mistral-small-4-119b-2603",
+    "🔥 DeepSeek V3": "deepseek-3.2",
+    "🐬 DeepSeek R1 Distill Qwen": "deepseek-r1-distill-qwen-32b",
+    "🏆 Mistral Large 3": "mistral-large-3-675b-instruct-2512",
+    "🤖 DeepSeek R1": "chieustudio/deepseek-r1",
+    "🤖 Kimi K2.6": "kimi-k2.6",
+    "🐉 GLM-5": "glm-5",
+    "🤔 Grok 4.20 Thinking": "grok-4.20-thinking",
+    "🤖 Grok 4.3": "grok-4.3",
+    "⚡ Grok 4.20 Fast": "grok-4.20-fast",
+    "🤖 GPT-5.4 Mini": "gpt-5.4-mini",
+    "🐉 GLM-5.1": "glm-5.1",
+    "🤖 Claude Haiku 4.5": "claude-haiku-4.5",
+    "🤖 GPT-5.2": "gpt-5.2",
+    "🤖 GPT-5.3 Codex": "gpt-5.3-codex",
+    "🤖 GPT-5.4": "gpt-5.4",
+    "🤖 Claude Sonnet 4.6": "claude-sonnet-4.6",
+    "🤖 Claude Sonnet 4.5": "claude-sonnet-4.5",
+}
 
 # ═══════════════════════════════════════════════
 # LOGGING
@@ -131,7 +88,7 @@ def escape_md(text: str) -> str:
 
 
 def truncate_history(history: List[Dict[str, str]], max_chars: int = 8000) -> List[Dict[str, str]]:
-    """Trim oldest messages while keeping system/user/assistant balance."""
+    """Trim oldest messages while keeping total characters under limit."""
     total = sum(len(m.get("content", "")) for m in history)
     while total > max_chars and len(history) > 1:
         removed = history.pop(0)
@@ -141,11 +98,8 @@ def truncate_history(history: List[Dict[str, str]], max_chars: int = 8000) -> Li
 
 def extract_code_blocks(text: str) -> Tuple[Optional[str], Optional[str]]:
     """Extract first code block and optional filename from AI response."""
-    # Try to find FILENAME: xxx.yyy
     fname_match = re.search(r'FILENAME[:\s]+(\S+\.[a-zA-Z0-9]+)', text, re.IGNORECASE)
     filename = fname_match.group(1) if fname_match else None
-
-    # Extract code blocks: ```lang\ncode\n``` or ```\ncode\n```
     blocks = re.findall(r'```(?:[\w+]+)?\n(.*?)```', text, re.DOTALL)
     if blocks:
         return filename, blocks[0].strip()
@@ -153,7 +107,7 @@ def extract_code_blocks(text: str) -> Tuple[Optional[str], Optional[str]]:
 
 
 # ═══════════════════════════════════════════════
-# ASYNC AI CLIENT (non-blocking)
+# ASYNC AI CLIENT
 # ═══════════════════════════════════════════════
 
 class AIClient:
@@ -354,7 +308,7 @@ async def send_long_message(update: Update, text: str, header: str = "") -> None
 
 
 # ═══════════════════════════════════════════════
-# INLINE KEYBOARD HELPERS (Models Pagination)
+# INLINE KEYBOARD (Models Pagination)
 # ═══════════════════════════════════════════════
 
 async def _render_models_page(update: Update, context: ContextTypes.DEFAULT_TYPE,
@@ -385,7 +339,6 @@ async def _render_models_page(update: Update, context: ContextTypes.DEFAULT_TYPE
     if row:
         buttons.append(row)
 
-    # Pagination nav
     nav: List[InlineKeyboardButton] = []
     if page > 1:
         nav.append(InlineKeyboardButton("◀ Prev", callback_data=f"page:{page-1}"))
@@ -435,7 +388,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"*/tts* <text> — Convert text to speech\n"
         f"*/git help* — GitHub commands\n\n"
         f"💡 *Features:*\n"
-        f"• Auto\-fallback across {len(AI_ENDPOINTS)} AI endpoints\n"
+        f"• Auto\-fallback across AI endpoints\n"
         f"• Smart history trimming\n"
         f"• Long replies auto\-sent as \.txt files\n"
         f"• MarkdownV2 safe formatting\n"
@@ -587,7 +540,6 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 header = f"📄 *{escape_md(context.args[1])}*\n```text\n"
                 footer = "\n```"
                 safe = escape_md(content)
-                # If total too long, send as file
                 if len(header + safe + footer) > 4000:
                     await send_long_message(update, content, header=f"📄 *{escape_md(context.args[1])}*\n\n")
                 else:
@@ -731,7 +683,6 @@ async def post_shutdown(application) -> None:
     if ai_client:
         await ai_client.close()
         logger.info("AI client closed.")
-    # Close any lingering GitHub clients if stored
 
 
 # ═══════════════════════════════════════════════
@@ -741,10 +692,8 @@ async def post_shutdown(application) -> None:
 def main() -> None:
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
-    # Shared async resources
     app.bot_data["ai_client"] = AIClient(AI_ENDPOINTS)
 
-    # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("models", models_cmd))
@@ -755,7 +704,6 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(models_callback, pattern=r"^(switch|page):"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Error & lifecycle
     app.add_error_handler(error_handler)
     app.post_shutdown(post_shutdown)
 
