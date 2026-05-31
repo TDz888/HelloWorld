@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-🚀 ULTIMATE TELEGRAM AI AGENT BOT v3.0 (Hardcoded Config Edition)
-Refactored: async-native, beautiful UI, fault-tolerant.
+🚀 ULTIMATE TELEGRAM AI AGENT BOT v3.1
+Fixed: SyntaxWarning escape sequences, post_shutdown assignment.
 """
 
 import os
@@ -13,7 +13,6 @@ import logging
 import tempfile
 import time
 from typing import Optional, List, Dict, Any, Tuple
-from dataclasses import dataclass, field
 
 import httpx
 from telegram import (
@@ -84,7 +83,7 @@ logger = logging.getLogger(__name__)
 def escape_md(text: str) -> str:
     """Escape Telegram MarkdownV2 reserved characters."""
     chars = r'_*[]()~`>#+-=|{}.!'
-    return re.sub(f'([{re.escape(chars)}])', r'\\\1', text)
+    return re.sub(r'([' + re.escape(chars) + r'])', r'\\\1', text)
 
 
 def truncate_history(history: List[Dict[str, str]], max_chars: int = 8000) -> List[Dict[str, str]]:
@@ -329,7 +328,7 @@ async def _render_models_page(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     for i, k in enumerate(page_keys, start=start_idx + 1):
         marker = "✅" if k == state['model'] else "⚪"
-        text += f"{marker} *{i}\.* `{escape_md(k)}`\n"
+        text += f"{marker} *{i}\\.* `{escape_md(k)}`\n"
         cb = f"switch:{start_idx + i - 1}"
         label = f"{i}. {k[:18]}"
         row.append(InlineKeyboardButton(label, callback_data=cb))
@@ -363,7 +362,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     state = conv.get(user_id)
     model = escape_md(state['model'])
     text = (
-        f"🤖 *Ultimate AI Agent Bot v3\.0*\n"
+        f"🤖 *Ultimate AI Agent Bot v3\\.1*\n"
         f"━━━━━━━━━━━━━━━\n"
         f"🎯 Current model: `{model}`\n\n"
         f"📂 /models — Browse models\n"
@@ -388,11 +387,11 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"*/tts* <text> — Convert text to speech\n"
         f"*/git help* — GitHub commands\n\n"
         f"💡 *Features:*\n"
-        f"• Auto\-fallback across AI endpoints\n"
+        f"• Auto\\-fallback across AI endpoints\n"
         f"• Smart history trimming\n"
-        f"• Long replies auto\-sent as \.txt files\n"
+        f"• Long replies auto\\-sent as \\.txt files\n"
         f"• MarkdownV2 safe formatting\n"
-        f"• GitHub auto\-code generation & push"
+        f"• GitHub auto\\-code generation & push"
     )
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
 
@@ -486,7 +485,7 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"*/git get* <path> — View file\n"
             f"*/git delete* <path> — Delete file\n"
             f"*/git auto* <request> — AI generates & pushes code\n\n"
-            f"💡 *Tip:* In `/git auto`, the AI will try to suggest a filename\."
+            f"💡 *Tip:* In `/git auto`, the AI will try to suggest a filename\\."
         )
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
         return
@@ -609,7 +608,7 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 ok, msg = await gh.push(path, code, f"Auto-generated: {task[:60]}")
                 if ok:
                     await update.message.reply_text(
-                        f"✅ Auto\-pushed `{escape_md(path)}`: [Link]({msg})",
+                        f"✅ Auto\\-pushed `{escape_md(path)}`: [Link]({msg})",
                         parse_mode=ParseMode.MARKDOWN_V2,
                         disable_web_page_preview=True
                     )
@@ -618,7 +617,7 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             else:
                 preview = escape_md(ai_resp[:600])
                 await update.message.reply_text(
-                    f"❌ AI did not return a code block\. Preview:\n\n{preview}",
+                    f"❌ AI did not return a code block\\. Preview:\n\n{preview}",
                     parse_mode=ParseMode.MARKDOWN_V2
                 )
         except Exception as e:
@@ -705,9 +704,9 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.add_error_handler(error_handler)
-    app.post_shutdown(post_shutdown)
+    app.post_shutdown = post_shutdown
 
-    logger.info("🚀 Bot v3.0 starting...")
+    logger.info("🚀 Bot v3.1 starting...")
     app.run_polling(drop_pending_updates=True)
 
 
