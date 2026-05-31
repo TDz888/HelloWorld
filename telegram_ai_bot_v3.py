@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-🚀 ULTIMATE TELEGRAM AI AGENT BOT v3.1
-Fixed: SyntaxWarning escape sequences, post_shutdown assignment.
+🚀 ULTIMATE TELEGRAM AI AGENT BOT v3.2
+Fixed: escape_markdown from telegram.helpers, no SyntaxWarning, no BadRequest.
 """
 
 import os
@@ -23,6 +23,7 @@ from telegram.ext import (
     MessageHandler, CallbackQueryHandler, filters
 )
 from telegram.constants import ParseMode
+from telegram.helpers import escape_markdown
 
 # ═══════════════════════════════════════════════
 # HARDCODED CONFIG
@@ -80,10 +81,9 @@ logger = logging.getLogger(__name__)
 # UTILITIES
 # ═══════════════════════════════════════════════
 
-def escape_md(text: str) -> str:
-    """Escape Telegram MarkdownV2 reserved characters."""
-    chars = r'_*[]()~`>#+-=|{}.!'
-    return re.sub(r'([' + re.escape(chars) + r'])', r'\\\1', text)
+def md(text: str) -> str:
+    """Safe MarkdownV2 escape using telegram's official helper."""
+    return escape_markdown(text, version=2)
 
 
 def truncate_history(history: List[Dict[str, str]], max_chars: int = 8000) -> List[Dict[str, str]]:
@@ -192,7 +192,7 @@ class GitHubClient:
             data = resp.json()
             self.owner = data["owner"]["login"]
             self.repo = name
-            return True, f"Created repo `{name}` (owner: `{self.owner}`)"
+            return True, f"Created repo {name} (owner: {self.owner})"
         return False, f"GitHub error {resp.status_code}: {resp.text}"
 
     async def push(self, path: str, content: str, msg: str = "Auto-commit by Telegram Bot") -> Tuple[bool, str]:
@@ -301,7 +301,7 @@ async def send_long_message(update: Update, text: str, header: str = "") -> None
             document=open(path, 'rb'),
             filename="response.txt",
             caption="📄 Response was too long. Sent as file.",
-            parse_mode=ParseMode.MARKDOWN_V2
+            parse_mode=None
         )
         os.unlink(path)
 
@@ -328,7 +328,7 @@ async def _render_models_page(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     for i, k in enumerate(page_keys, start=start_idx + 1):
         marker = "✅" if k == state['model'] else "⚪"
-        text += f"{marker} *{i}\\.* `{escape_md(k)}`\n"
+        text += f"{marker} *{i}\.* `{md(k)}`\n"
         cb = f"switch:{start_idx + i - 1}"
         label = f"{i}. {k[:18]}"
         row.append(InlineKeyboardButton(label, callback_data=cb))
@@ -360,9 +360,9 @@ async def _render_models_page(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     state = conv.get(user_id)
-    model = escape_md(state['model'])
+    model = md(state['model'])
     text = (
-        f"🤖 *Ultimate AI Agent Bot v3\\.1*\n"
+        f"🤖 *Ultimate AI Agent Bot v3\.2*\n"
         f"━━━━━━━━━━━━━━━\n"
         f"🎯 Current model: `{model}`\n\n"
         f"📂 /models — Browse models\n"
@@ -387,11 +387,11 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"*/tts* <text> — Convert text to speech\n"
         f"*/git help* — GitHub commands\n\n"
         f"💡 *Features:*\n"
-        f"• Auto\\-fallback across AI endpoints\n"
+        f"• Auto\-fallback across AI endpoints\n"
         f"• Smart history trimming\n"
-        f"• Long replies auto\\-sent as \\.txt files\n"
+        f"• Long replies auto\-sent as \.txt files\n"
         f"• MarkdownV2 safe formatting\n"
-        f"• GitHub auto\\-code generation & push"
+        f"• GitHub auto\-code generation & push"
     )
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
 
@@ -416,7 +416,7 @@ async def models_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if 0 <= idx < len(keys):
             conv.set_model(user_id, keys[idx])
             await query.edit_message_text(
-                f"✅ Model switched to: `{escape_md(keys[idx])}`\n\n"
+                f"✅ Model switched to: `{md(keys[idx])}`\n\n"
                 f"Use /models to browse more or send a message to chat.",
                 parse_mode=ParseMode.MARKDOWN_V2
             )
@@ -435,7 +435,7 @@ async def switch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         if 0 <= idx < len(keys):
             conv.set_model(update.effective_user.id, keys[idx])
             await update.message.reply_text(
-                f"✅ Selected: `{escape_md(keys[idx])}`",
+                f"✅ Selected: `{md(keys[idx])}`",
                 parse_mode=ParseMode.MARKDOWN_V2
             )
         else:
@@ -470,7 +470,7 @@ async def tts_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_voice(InputFile(audio))
     except Exception as e:
         logger.exception("TTS failed")
-        await update.message.reply_text(f"❌ TTS Error: `{escape_md(str(e))}`", parse_mode=ParseMode.MARKDOWN_V2)
+        await update.message.reply_text(f"❌ TTS Error: `{md(str(e))}`", parse_mode=ParseMode.MARKDOWN_V2)
 
 
 async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -485,7 +485,7 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"*/git get* <path> — View file\n"
             f"*/git delete* <path> — Delete file\n"
             f"*/git auto* <request> — AI generates & pushes code\n\n"
-            f"💡 *Tip:* In `/git auto`, the AI will try to suggest a filename\\."
+            f"💡 *Tip:* In `/git auto`, the AI will try to suggest a filename\."
         )
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
         return
@@ -500,7 +500,7 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if len(context.args) >= 3:
             conv.set_github(user_id, context.args[1], context.args[2])
             await update.message.reply_text(
-                f"✅ GitHub configured: `{escape_md(state['gh_owner'])}/{escape_md(state['gh_repo'])}`",
+                f"✅ GitHub configured: `{md(state['gh_owner'])}/{md(state['gh_repo'])}`",
                 parse_mode=ParseMode.MARKDOWN_V2
             )
         else:
@@ -512,7 +512,7 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if ok:
                 conv.set_github(user_id, gh.owner, gh.repo)
             await update.message.reply_text(
-                f"{'✅' if ok else '❌'} {escape_md(msg)}",
+                f"{'✅' if ok else '❌'} {md(msg)}",
                 parse_mode=ParseMode.MARKDOWN_V2
             )
         else:
@@ -524,10 +524,10 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         ok, files = await gh.list_files()
         if ok:
-            text = "📁 *Files:*\n" + "\n".join(f"• `{escape_md(f)}`" for f in files) if files else "📁 *Empty repository*"
+            text = "📁 *Files:*\n" + "\n".join(f"• `{md(f)}`" for f in files) if files else "📁 *Empty repository*"
             await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
         else:
-            await update.message.reply_text(f"❌ {escape_md(str(files))}", parse_mode=ParseMode.MARKDOWN_V2)
+            await update.message.reply_text(f"❌ {md(str(files))}", parse_mode=ParseMode.MARKDOWN_V2)
 
     elif action == 'get':
         if len(context.args) >= 2:
@@ -536,15 +536,15 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 return
             ok, content = await gh.get(context.args[1])
             if ok:
-                header = f"📄 *{escape_md(context.args[1])}*\n```text\n"
+                header = f"📄 *{md(context.args[1])}*\n```text\n"
                 footer = "\n```"
-                safe = escape_md(content)
+                safe = md(content)
                 if len(header + safe + footer) > 4000:
-                    await send_long_message(update, content, header=f"📄 *{escape_md(context.args[1])}*\n\n")
+                    await send_long_message(update, content, header=f"📄 *{md(context.args[1])}*\n\n")
                 else:
                     await update.message.reply_text(header + safe + footer, parse_mode=ParseMode.MARKDOWN_V2)
             else:
-                await update.message.reply_text(f"❌ {escape_md(str(content))}", parse_mode=ParseMode.MARKDOWN_V2)
+                await update.message.reply_text(f"❌ {md(str(content))}", parse_mode=ParseMode.MARKDOWN_V2)
         else:
             await update.message.reply_text("❌ Usage: `/git get <path>`", parse_mode=ParseMode.MARKDOWN_V2)
 
@@ -554,7 +554,7 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 await update.message.reply_text("❌ Configure GitHub first.", parse_mode=ParseMode.MARKDOWN_V2)
                 return
             ok, msg = await gh.delete(context.args[1])
-            await update.message.reply_text(f"{'✅' if ok else '❌'} {escape_md(msg)}", parse_mode=ParseMode.MARKDOWN_V2)
+            await update.message.reply_text(f"{'✅' if ok else '❌'} {md(msg)}", parse_mode=ParseMode.MARKDOWN_V2)
         else:
             await update.message.reply_text("❌ Usage: `/git delete <path>`", parse_mode=ParseMode.MARKDOWN_V2)
 
@@ -568,12 +568,12 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ok, msg = await gh.push(path, content)
             if ok:
                 await update.message.reply_text(
-                    f"✅ Pushed `{escape_md(path)}`: [Link]({msg})",
+                    f"✅ Pushed `{md(path)}`: [Link]({msg})",
                     parse_mode=ParseMode.MARKDOWN_V2,
                     disable_web_page_preview=True
                 )
             else:
-                await update.message.reply_text(f"❌ {escape_md(msg)}", parse_mode=ParseMode.MARKDOWN_V2)
+                await update.message.reply_text(f"❌ {md(msg)}", parse_mode=ParseMode.MARKDOWN_V2)
         else:
             await update.message.reply_text("❌ Usage: `/git push <path> <content>`", parse_mode=ParseMode.MARKDOWN_V2)
 
@@ -608,21 +608,21 @@ async def git_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 ok, msg = await gh.push(path, code, f"Auto-generated: {task[:60]}")
                 if ok:
                     await update.message.reply_text(
-                        f"✅ Auto\\-pushed `{escape_md(path)}`: [Link]({msg})",
+                        f"✅ Auto\-pushed `{md(path)}`: [Link]({msg})",
                         parse_mode=ParseMode.MARKDOWN_V2,
                         disable_web_page_preview=True
                     )
                 else:
-                    await update.message.reply_text(f"❌ Push failed: {escape_md(msg)}", parse_mode=ParseMode.MARKDOWN_V2)
+                    await update.message.reply_text(f"❌ Push failed: {md(msg)}", parse_mode=ParseMode.MARKDOWN_V2)
             else:
-                preview = escape_md(ai_resp[:600])
+                preview = md(ai_resp[:600])
                 await update.message.reply_text(
-                    f"❌ AI did not return a code block\\. Preview:\n\n{preview}",
+                    f"❌ AI did not return a code block\. Preview:\n\n{preview}",
                     parse_mode=ParseMode.MARKDOWN_V2
                 )
         except Exception as e:
             logger.exception("Git auto failed")
-            await update.message.reply_text(f"❌ Error: `{escape_md(str(e))}`", parse_mode=ParseMode.MARKDOWN_V2)
+            await update.message.reply_text(f"❌ Error: `{md(str(e))}`", parse_mode=ParseMode.MARKDOWN_V2)
 
     else:
         await update.message.reply_text("❓ Unknown command. Try `/git help`", parse_mode=ParseMode.MARKDOWN_V2)
@@ -649,13 +649,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         ai_response = await ai_client.chat(model_id, messages)
         conv.add_message(user_id, "assistant", ai_response)
 
-        header = f"🤖 *{escape_md(conv.get(user_id)['model'])}*\n"
-        safe = escape_md(ai_response)
+        header = f"🤖 *{md(conv.get(user_id)['model'])}*\n"
+        safe = md(ai_response)
         await send_long_message(update, safe, header=header)
     except Exception as e:
         logger.exception("Chat error")
         await update.message.reply_text(
-            f"⚠️ *Error:* `{escape_md(str(e))}`\n\nPlease try again later.",
+            f"⚠️ *Error:* `{md(str(e))}`\n\nPlease try again later.",
             parse_mode=ParseMode.MARKDOWN_V2
         )
 
@@ -668,7 +668,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error(f"Exception while handling update: {context.error}", exc_info=context.error)
     if update and update.effective_message:
         await update.effective_message.reply_text(
-            "⚠️ An unexpected error occurred. The team has been notified.",
+            "⚠️ An unexpected error occurred\. The team has been notified\.",
             parse_mode=ParseMode.MARKDOWN_V2
         )
 
@@ -706,7 +706,7 @@ def main() -> None:
     app.add_error_handler(error_handler)
     app.post_shutdown = post_shutdown
 
-    logger.info("🚀 Bot v3.1 starting...")
+    logger.info("🚀 Bot v3.2 starting...")
     app.run_polling(drop_pending_updates=True)
 
 
