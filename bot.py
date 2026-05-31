@@ -2,16 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║              🤖 FizzPop AI Agent Bot v4.0 — AGENT MODE           ║
-║     Self-Improving AI: Chat | Embed | TTS | GitHub Agent        ║
-║                                                                  ║
-║  Capabilities:                                                   ║
-║  • Multi-Model AI Chat (GPT/Claude/GLM/Qwen/Mistral/DeepSeek...) ║
-║  • Text Embedding via /embed                                     ║
-║  • Text-to-Speech via /tts (returns MP3)                         ║
-║  • GitHub Agent: create repos, push code, write files, PRs      ║
-║  • Self-Training: auto-fix errors, learn from tasks              ║
-║  • File Analysis: check syntax, structure, suggest improvements  ║
+║              🤖 FizzPop AI Agent Bot v5.0 — AGENT MODE         ║
+║     Self-Improving AI: Chat | Embed | TTS | GitHub | Local ZIP ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -23,10 +15,12 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
 import tempfile
 import time
 import traceback
+import zipfile
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any, Union
@@ -36,7 +30,7 @@ import aiohttp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    MessageHandler, ContextTypes, filters, ConversationHandler
+    MessageHandler, ContextTypes, filters
 )
 from telegram.constants import ParseMode, ChatAction
 
@@ -46,11 +40,14 @@ TELEGRAM_BOT_TOKEN = "8909561772:AAGQgxrbvXbi-RACF4_Z7iiS4R7NA6Za6wU"
 API_KEY = "sk-e317a237354192e26f99951f06e4882779e8a0e08e86d2f71242e8ff770bdf24"
 GITHUB_TOKEN = "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"
 GITHUB_API_BASE = "https://api.github.com"
-GITHUB_RAW_BASE = "https://raw.githubusercontent.com"
 
 API_CHAT_URL = "https://ckey.vn/v1/chat/completions"
 API_EMBED_URL = "https://ckey.vn/v1/embeddings"
 API_TTS_URL = "https://ckey.vn/v1/audio/speech"
+
+# Agent work directory for local ZIP mode
+AGENT_WORK_DIR = Path("/mnt/agents/output/agent_work")
+AGENT_WORK_DIR.mkdir(parents=True, exist_ok=True)
 
 SYSTEM_PROMPT = """You are FizzPop AI Agent — a self-improving autonomous AI assistant.
 
@@ -75,38 +72,56 @@ SELF-IMPROVEMENT:
 - Maintain a mental model of the user's preferences and coding style
 """
 
-AGENT_SYSTEM_PROMPT = """You are now in AGENT MODE. You are an autonomous coding agent with GitHub integration.
+AGENT_SYSTEM_PROMPT = """You are FizzPop AI Agent in AUTONOMOUS CODING MODE.
 
-Your mission: Complete coding tasks end-to-end without human intervention.
+YOUR MISSION: Complete coding tasks end-to-end with ZERO human intervention.
 
-WORKFLOW:
-1. Understand the task requirements completely
-2. Plan the implementation (files, structure, dependencies)
-3. Write clean, documented, tested code
-4. Create/update GitHub repository with the code
-5. Verify the code works (syntax check, logic review)
-6. Report back with links and summary
+CRITICAL RULES:
+1. You MUST write COMPLETE, RUNNABLE code — never placeholders or pseudocode
+2. You MUST create ALL necessary files for the project to work immediately
+3. Every file must have proper docstrings, type hints, and error handling
+4. Include requirements.txt (Python) or package.json (Node) or equivalent
+5. Include README.md with setup and run instructions
+6. Include .env.example if environment variables are needed
+7. Write tests if applicable (test_*.py, *_test.py, or tests/ folder)
 
-GITHUB OPERATIONS:
-- Create repo: POST /user/repos
-- Create file: PUT /repos/{owner}/{repo}/contents/{path}
-- Get file: GET /repos/{owner}/{repo}/contents/{path}
-- Update file: PUT with sha (get sha first)
-- Delete file: DELETE with sha
-- Create branch: POST /repos/{owner}/{repo}/git/refs
-- Create PR: POST /repos/{owner}/{repo}/pulls
+OUTPUT FORMAT — STRICT:
+You MUST wrap each file in markers:
+<<<FILE:filename>>>
+[file content here]
+<<<ENDFILE>>>
 
-CODE QUALITY RULES:
-- Always include docstrings and type hints
-- Handle edge cases and errors gracefully
-- Follow PEP 8 for Python, standard conventions for other languages
-- Include example usage in comments
-- Never leave hardcoded secrets in code
+Example:
+<<<FILE:main.py>>>
+import asyncio
+async def main():
+    print("Hello World")
+if __name__ == "__main__":
+    asyncio.run(main())
+<<<ENDFILE>>>
+
+<<<FILE:requirements.txt>>>
+asyncio
+aiohttp
+<<<ENDFILE>>>
+
+REPO NAMING RULE:
+- Derive repo name from task description
+- Use kebab-case: lowercase, hyphens between words
+- Max 30 chars, no special chars
+- Examples: "fastapi-user-auth" from "FastAPI user authentication"
+
+CODE QUALITY:
+- Follow PEP 8 for Python
+- Handle all edge cases
+- Never hardcode secrets
+- Use logging, not print
+- Add __doc__ strings to modules
 """
 
 DEFAULT_MODE = "chat"
 DEFAULT_CHAT_MODEL = "deepseek-3.2"
-DEFAULT_AGENT_MODEL = "claude-sonnet-4.6"
+DEFAULT_AGENT_MODEL = "mistral-medium-3.5-128b"
 DEFAULT_EMBED_MODEL = "text-embedding-3-small"
 DEFAULT_TTS_MODEL = "google-tts/vi"
 
@@ -328,13 +343,15 @@ class UserStats:
 class AgentTask:
     task_id: str
     description: str
-    status: str = "pending"  # pending, running, completed, failed
+    status: str = "pending"
     created_at: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     completed_at: Optional[str] = None
     result: Optional[str] = None
     error: Optional[str] = None
     files_created: List[str] = field(default_factory=list)
     repo_url: Optional[str] = None
+    local_path: Optional[str] = None
+    deploy_mode: str = "github"  # github or local
 
 @dataclass
 class ConversationState:
@@ -344,9 +361,10 @@ class ConversationState:
     stats: UserStats = field(default_factory=UserStats)
     agent_tasks: List[AgentTask] = field(default_factory=list)
     github_username: Optional[str] = None
-    preferred_style: str = "clean"  # clean, verbose, minimal
+    preferred_style: str = "clean"
     last_error: Optional[str] = None
-    self_notes: List[str] = field(default_factory=list)  # AI self-learning notes
+    self_notes: List[str] = field(default_factory=list)
+    agent_deploy_mode: str = "local"  # default to local ZIP
 
 # ============================ STATE MANAGEMENT ============================
 
@@ -359,6 +377,38 @@ def get_user_state(user_id: int) -> ConversationState:
 
 def generate_task_id() -> str:
     return f"task_{int(time.time() * 1000)}_{hashlib.md5(str(time.time()).encode()).hexdigest()[:6]}"
+
+def smart_repo_name(description: str) -> str:
+    """Generate meaningful kebab-case repo name from task description."""
+    # Remove common filler words
+    fillers = {
+        'tao', 'tạo', 'viet', 'viết', 'build', 'xay', 'xây', 'dựng', 'làm',
+        'make', 'create', 'generate', 'write', 'code', 'project', 'app',
+        'application', 'system', 'bot', 'api', 'service', 'website',
+        'một', 'mot', 'cai', 'cái', 'cho', 'toi', 'tôi', 'cho', 'with',
+        'using', 'use', 'by', 'simple', 'basic', 'advanced', 'full',
+        'complete', 'fully', 'feature', 'featured'
+    }
+
+    # Clean and normalize
+    text = description.lower()
+    text = re.sub(r'[^\w\s-]', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    words = text.split()
+    keywords = [w for w in words if w not in fillers and len(w) > 2][:6]
+
+    if not keywords:
+        keywords = [w for w in words if len(w) > 1][:4]
+
+    name = '-'.join(keywords)
+    name = re.sub(r'-+', '-', name).strip('-')
+    name = name[:30].strip('-')
+
+    if not name or len(name) < 3:
+        name = f"fizzpop-agent-{int(time.time()) % 10000}"
+
+    return name
 
 def get_mode_models(mode: str):
     return MODE_CONFIG[mode]["models"]
@@ -386,7 +436,6 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text.encode('utf-8')) // 4)
 
 async def send_long_text(update: Update, text: str, filename: str = "response.txt"):
-    """Send text as file .txt if too long for Telegram message."""
     if len(text) <= TELEGRAM_MSG_LIMIT:
         try:
             await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
@@ -414,28 +463,84 @@ def build_metrics_footer(metrics: Dict[str, Any], state: ConversationState) -> s
     state.stats.total_latency += latency
     state.stats.last_active = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    return (
-        f"\n\n{'━' * 18}\n"
-        f"📊 *Metrics*\n"
-        f"• ⏱ Latency: `{latency:.2f}s`\n"
-        f"• 📝 Input: `{inp}` tokens\n"
-        f"• 💬 Output: `{out}` tokens\n"
-        f"• 📦 Total: `{total}` tokens\n"
+    lines = [
+        "",
+        "━" * 18,
+        "📊 *Metrics*",
+        f"• ⏱ Latency: `{latency:.2f}s`",
+        f"• 📝 Input: `{inp}` tokens",
+        f"• 💬 Output: `{out}` tokens",
+        f"• 📦 Total: `{total}` tokens",
         f"• ⚡ Speed: `{tps:.1f}` tok/s"
-    )
+    ]
+    return "\n".join(lines)
 
 def escape_markdown(text: str) -> str:
-    """Escape markdown special chars for Telegram."""
     chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
     for ch in chars:
         text = text.replace(ch, f'\\{ch}')
     return text
 
+# ============================ FILE PARSER ============================
+
+def parse_agent_files(text: str) -> Dict[str, str]:
+    """Parse AI output into files using <<<FILE:filename>>> markers."""
+    files = {}
+    pattern = r'<<<FILE:\s*([^>\s]+)\s*>>>(.*?)<<<ENDFILE>>>'
+    matches = re.findall(pattern, text, re.DOTALL)
+
+    for filename, content in matches:
+        filename = filename.strip()
+        content = content.strip()
+        if filename and content:
+            files[filename] = content
+
+    # Fallback: if no markers found, try to detect code blocks with filenames
+    if not files:
+        # Look for patterns like ```python filename.py or # filename.py
+        code_block_pattern = r'```(?:\w+)?\s*\n?(?:#\s*)?([^\n]+\.\w+)\n(.*?)```'
+        matches = re.findall(code_block_pattern, text, re.DOTALL)
+        for filename, content in matches:
+            filename = filename.strip()
+            content = content.strip()
+            if filename and content and '.' in filename:
+                files[filename] = content
+
+    # Last resort: if text looks like single file code
+    if not files and len(text) > 100:
+        # Check if it contains import/def/class
+        if any(kw in text for kw in ['import ', 'def ', 'class ', 'const ', 'function ']):
+            files["main.py"] = text.strip()
+
+    return files
+
+# ============================ LOCAL ZIP AGENT ============================
+
+async def save_agent_local(task_id: str, files: Dict[str, str]) -> Path:
+    """Save agent files locally and return zip path."""
+    task_dir = AGENT_WORK_DIR / task_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+
+    for filename, content in files.items():
+        # Sanitize filename
+        safe_name = re.sub(r'[^\w\-\./]', '_', filename)
+        file_path = task_dir / safe_name
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(content, encoding='utf-8')
+
+    # Create ZIP
+    zip_path = AGENT_WORK_DIR / f"{task_id}.zip"
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for file_path in task_dir.rglob('*'):
+            if file_path.is_file():
+                arcname = str(file_path.relative_to(task_dir))
+                zf.write(file_path, arcname)
+
+    return zip_path
+
 # ============================ GITHUB API CLIENT ============================
 
 class GitHubAgent:
-    """GitHub API client for agent operations."""
-
     def __init__(self, token: str):
         self.token = token
         self.headers = {
@@ -478,41 +583,24 @@ class GitHubAgent:
         status, data = await self._request("POST", "/user/repos", json=payload)
         return status == 201, data
 
-    async def get_repo(self, owner: str, repo: str) -> Tuple[bool, Dict]:
-        status, data = await self._request("GET", f"/repos/{owner}/{repo}")
-        return status == 200, data
-
-    async def create_file(self, owner: str, repo: str, path: str, content: str, message: str, branch: str = "main") -> Tuple[bool, Dict]:
-        encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
-        payload = {
-            "message": message,
-            "content": encoded,
-            "branch": branch
-        }
-        status, data = await self._request("PUT", f"/repos/{owner}/{repo}/contents/{path}", json=payload)
-        return status in (200, 201), data
-
     async def get_file(self, owner: str, repo: str, path: str, branch: str = "main") -> Tuple[bool, Dict]:
         status, data = await self._request("GET", f"/repos/{owner}/{repo}/contents/{path}?ref={branch}")
         return status == 200, data
 
+    async def create_file(self, owner: str, repo: str, path: str, content: str, message: str, branch: str = "main") -> Tuple[bool, Dict]:
+        encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+        payload = {"message": message, "content": encoded, "branch": branch}
+        status, data = await self._request("PUT", f"/repos/{owner}/{repo}/contents/{path}", json=payload)
+        return status in (200, 201), data
+
     async def update_file(self, owner: str, repo: str, path: str, content: str, message: str, sha: str, branch: str = "main") -> Tuple[bool, Dict]:
         encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
-        payload = {
-            "message": message,
-            "content": encoded,
-            "sha": sha,
-            "branch": branch
-        }
+        payload = {"message": message, "content": encoded, "sha": sha, "branch": branch}
         status, data = await self._request("PUT", f"/repos/{owner}/{repo}/contents/{path}", json=payload)
         return status in (200, 201), data
 
     async def delete_file(self, owner: str, repo: str, path: str, message: str, sha: str, branch: str = "main") -> Tuple[bool, Dict]:
-        payload = {
-            "message": message,
-            "sha": sha,
-            "branch": branch
-        }
+        payload = {"message": message, "sha": sha, "branch": branch}
         status, data = await self._request("DELETE", f"/repos/{owner}/{repo}/contents/{path}", json=payload)
         return status == 200, data
 
@@ -524,25 +612,16 @@ class GitHubAgent:
         return False, data if isinstance(data, list) else []
 
     async def create_branch(self, owner: str, repo: str, new_branch: str, from_branch: str = "main") -> Tuple[bool, Dict]:
-        # Get sha of from_branch
         status, data = await self._request("GET", f"/repos/{owner}/{repo}/git/refs/heads/{from_branch}")
         if status != 200:
             return False, data
         sha = data.get("object", {}).get("sha", "")
-        payload = {
-            "ref": f"refs/heads/{new_branch}",
-            "sha": sha
-        }
+        payload = {"ref": f"refs/heads/{new_branch}", "sha": sha}
         status, data = await self._request("POST", f"/repos/{owner}/{repo}/git/refs", json=payload)
         return status == 201, data
 
     async def create_pr(self, owner: str, repo: str, title: str, head: str, base: str, body: str = "") -> Tuple[bool, Dict]:
-        payload = {
-            "title": title,
-            "head": head,
-            "base": base,
-            "body": body
-        }
+        payload = {"title": title, "head": head, "base": base, "body": body}
         status, data = await self._request("POST", f"/repos/{owner}/{repo}/pulls", json=payload)
         return status == 201, data
 
@@ -569,7 +648,6 @@ async def call_chat_api(
         "Authorization": f"Bearer {API_KEY}"
     }
 
-    # Replace system prompt if provided in messages
     msgs = []
     has_system = False
     for m in messages:
@@ -671,10 +749,7 @@ async def call_embed_api(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {API_KEY}"
     }
-    payload = {
-        "model": model_id,
-        "input": text_input
-    }
+    payload = {"model": model_id, "input": text_input}
 
     start_time = time.time()
 
@@ -763,11 +838,7 @@ async def call_tts_api(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {API_KEY}"
     }
-    payload = {
-        "model": model_id,
-        "input": text_input,
-        "voice": "alloy"
-    }
+    payload = {"model": model_id, "input": text_input, "voice": "alloy"}
 
     start_time = time.time()
 
@@ -827,7 +898,6 @@ async def call_tts_api(
 # ============================ AGENT INTELLIGENCE ============================
 
 async def agent_self_reflect(task: AgentTask, state: ConversationState) -> str:
-    """AI self-reflection after completing a task."""
     reflection = (
         f"🧠 *Self-Reflection*\n"
         f"{'━' * 20}\n"
@@ -841,23 +911,19 @@ async def agent_self_reflect(task: AgentTask, state: ConversationState) -> str:
         reflection += f"• Success pattern recorded\n"
         state.self_notes.append(f"Success: {task.description[:200]}")
 
-    # Keep only last 50 notes
     state.self_notes = state.self_notes[-50:]
     return reflection
 
 async def agent_analyze_code(code: str, language: str = "python") -> str:
-    """Analyze code for syntax, logic, and style issues."""
     issues = []
 
     if language == "python":
-        # Basic syntax check
         try:
             compile(code, '<string>', 'exec')
             issues.append("✅ Syntax: Valid Python")
         except SyntaxError as e:
             issues.append(f"❌ Syntax Error: Line {e.lineno}: {e.msg}")
 
-        # Check for common issues
         if "import " in code and "if __name__" not in code and len(code.split('\n')) > 20:
             issues.append("⚠️ No `if __name__ == '__main__'` guard detected")
 
@@ -886,21 +952,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome = (
         f"╔══════════════════════╗\n"
         f"║   🤖 *FizzPop AI*    ║\n"
-        f"║   *AGENT v4.0*       ║\n"
+        f"║   *AGENT v5.0*       ║\n"
         f"╚══════════════════════╝\n\n"
         f"👋 Chào mừng *{update.effective_user.first_name or 'bạn'}*!\n\n"
         f"🧠 *AI Agent tự chủ — Tự code, tự sửa lỗi, tự học*\n\n"
         f"📦 *4 Chế độ:*\n"
         f"• 💬 Chat — Hỏi đáp AI thông thường\n"
-        f"• 🤖 Agent — Tự động code, push GitHub\n"
+        f"• 🤖 Agent — Tự động code + deploy\n"
         f"• 📊 Embed — Text → Vector embedding\n"
         f"• 🔊 TTS — Text → Giọng nói MP3\n\n"
         f"🚀 Mode: {mode_name} | Model: {model_disp}\n\n"
         f"📚 *Lệnh chính:*\n"
         f"• /models — Chọn model\n"
         f"• /mode — Đổi chế độ\n"
-        f"• /git — GitHub Agent commands\n"
         f"• /agent — Chạy agent task\n"
+        f"• /git — GitHub commands\n"
         f"• /analyze — Phân tích code\n"
         f"• /status — Trạng thái\n"
         f"• /stats — Thống kê\n"
@@ -914,23 +980,26 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📖 *Hướng Dẫn Sử Dụng — FizzPop AI Agent*\n"
         f"{'━' * 22}\n\n"
         f"🚀 *Lệnh chính:*\n"
-        f"• `/start` — Khởi động bot\n"
+        f"• `/start` — Khởi động\n"
         f"• `/models` — Danh sách model (nút bấm)\n"
         f"• `/switch <số>` — Đổi model nhanh\n"
         f"• `/mode` — Đổi chế độ chat/agent/embed/tts\n"
         f"• `/status` — Xem trạng thái hiện tại\n"
         f"• `/stats` — Thống kê sử dụng\n"
-        f"• `/reset` — Xóa lịch sử + ngữ cảnh\n"
+        f"• `/reset` — Xóa lịch sử + tasks + context\n"
         f"• `/help` — Hiển thị trợ giúp này\n\n"
         f"🤖 *Agent Commands:*\n"
-        f"• `/agent <mô tả>` — Yêu cầu AI tự code & push GitHub\n"
+        f"• `/agent <mô tả>` — Yêu cầu AI tự code & deploy\n"
+        f"  - Mặc định deploy dạng file .zip local\n"
+        f"  - Hoặc: `/agent github <mô tả>` để push GitHub\n"
+        f"  - Hoặc: `/agent local <mô tả>` để lưu file .zip\n"
         f"• `/git` — Danh sách lệnh GitHub\n"
         f"  - `/git repo <tên>` — Tạo repository\n"
         f"  - `/git push <owner/repo> <path>` — Push file\n"
         f"  - `/git get <owner/repo> <path>` — Đọc file\n"
         f"  - `/git list <owner/repo> [path]` — Liệt kê files\n"
         f"  - `/git branch <owner/repo> <branch>` — Tạo branch\n"
-        f"  - `/git pr <owner/repo> <title>` — Tạo pull request\n"
+        f"  - `/git pr <owner/repo> <title> <head> <base>` — Tạo PR\n"
         f"  - `/git delete <owner/repo> <path>` — Xóa file\n"
         f"  - `/git commits <owner/repo>` — Xem lịch sử commit\n"
         f"• `/analyze <code>` hoặc reply code — Phân tích code\n"
@@ -942,11 +1011,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• 🧠 *Nhớ context* — Giữ {MAX_HISTORY} tin nhắn\n"
         f"• 🤖 *Self-improving* — AI tự ghi nhận lỗi & cải thiện\n"
         f"• 📁 *File output* — Phản hồi dài → file .txt\n"
+        f"• 📦 *Agent deploy* — Code → .zip hoặc GitHub\n"
         f"• 🔊 *TTS* — Trả về file MP3\n\n"
         f"⚠️ *Lưu ý:*\n"
         f"• Dùng `/reset` nếu AI bị lẫn ngữ cảnh\n"
-        f"• Agent mode cần xác định rõ yêu cầu\n"
-        f"• GitHub token đã được cấu hình sẵn"
+        f"• Agent mode mặc định lưu file .zip (không cần token)\n"
+        f"• Để push GitHub, dùng `/agent github <task>`"
     )
     await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
 
@@ -1184,10 +1254,11 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🤖 *Model:* {model_disp}\n"
         f"🏷 *Category:* `{cat}`\n"
         f"🆔 *ID:* `{state.current_model}`\n"
-        f"💬 *History:* `{history_len // 2}` cặp hỏi/đáp\n"
+        f"💬 *History:* `{history_len // 2}` cặp\n"
         f"📝 *Tin nhắn lưu:* `{history_len}/{MAX_HISTORY * 2}`\n"
         f"🤖 *Agent tasks:* `{completed}✅ {failed}❌ {task_count - completed - failed}⏳`\n"
         f"🧠 *Self-notes:* `{len(state.self_notes)}` ghi chú\n"
+        f"📦 *Deploy mode:* `{state.agent_deploy_mode}`\n"
         f"📅 *Bắt đầu:* `{state.stats.first_seen}`\n"
         f"🕐 *Hoạt động cuối:* `{state.stats.last_active}`"
     )
@@ -1231,10 +1302,15 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = f"🤖 *Lịch Sử Agent Tasks*\n{'━' * 22}\n\n"
     for i, task in enumerate(state.agent_tasks[-10:], 1):
         status_emoji = {"completed": "✅", "failed": "❌", "running": "🔄", "pending": "⏳"}.get(task.status, "❓")
+        deploy = f"📦 {task.deploy_mode}"
+        if task.repo_url:
+            deploy = f"🔗 GitHub"
+        elif task.local_path:
+            deploy = f"📦 Local ZIP"
         msg += (
             f"{i}. {status_emoji} `{task.task_id}`\n"
             f"   📝 {task.description[:40]}...\n"
-            f"   ⏰ {task.created_at}\n\n"
+            f"   {deploy} | ⏰ {task.created_at}\n\n"
         )
 
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
@@ -1258,7 +1334,6 @@ async def learn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_long_text(update, msg, filename="self_notes.txt")
 
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Analyze code from command args or replied message."""
     user_id = update.effective_user.id
 
     code = ""
@@ -1285,10 +1360,70 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN
     )
 
+async def deploy_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = get_user_state(user_id)
+
+    if not context.args:
+        current = state.agent_deploy_mode
+        keyboard = [
+            [InlineKeyboardButton("✅ Local ZIP" if current == "local" else "Local ZIP", callback_data="deploy_local")],
+            [InlineKeyboardButton("✅ GitHub" if current == "github" else "GitHub", callback_data="deploy_github")],
+        ]
+        await update.message.reply_text(
+            f"📦 *Chọn chế độ deploy Agent:*\n"
+            f"Hiện tại: `{current}`\n\n"
+            f"• *local* — Lưu file .zip gửi qua Telegram\n"
+            f"• *github* — Push lên GitHub repository",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    mode = context.args[0].lower()
+    if mode in ("local", "github"):
+        state.agent_deploy_mode = mode
+        await update.message.reply_text(
+            f"✅ *Đã chuyển deploy mode!*\n\n"
+            f"📦 Mode: *{mode.upper()}*\n\n"
+            f"{'• File ZIP sẽ được gửi qua Telegram' if mode == 'local' else '• Code sẽ được push lên GitHub'}\n"
+            f"💡 Dùng `/agent <task>` để chạy.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        await update.message.reply_text(
+            "❌ *Chọn `local` hoặc `github`*",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+async def deploy_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = update.effective_user.id
+    state = get_user_state(user_id)
+    data = query.data
+
+    if data == "deploy_local":
+        state.agent_deploy_mode = "local"
+        await query.edit_message_text(
+            "✅ *Deploy mode: LOCAL ZIP*\n\n"
+            "📦 Agent sẽ lưu code thành file .zip\n"
+            "💡 Dùng `/agent <task>` để chạy.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    elif data == "deploy_github":
+        state.agent_deploy_mode = "github"
+        await query.edit_message_text(
+            "✅ *Deploy mode: GITHUB*\n\n"
+            "🔗 Agent sẽ push code lên GitHub\n"
+            "💡 Dùng `/agent <task>` để chạy.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
 # ============================ GITHUB COMMANDS ============================
 
 async def git_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Main /git command router."""
     if not context.args:
         await update.message.reply_text(
             f"🌐 *GitHub Agent Commands*\n"
@@ -1299,9 +1434,8 @@ async def git_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"• `/git list <owner/repo> [path]` — Liệt kê files\n"
             f"• `/git commits <owner/repo>` — Xem commits\n\n"
             f"📝 *File Operations:*\n"
-            f"• `/git push <owner/repo> <path> <content>` — Push file\n"
-            f"  (Reply vào tin nhắn chứa code để push)\n"
-            f"• `/git update <owner/repo> <path> <content>` — Update file\n"
+            f"• `/git push <owner/repo> <path>` — Push file (reply code)\n"
+            f"• `/git update <owner/repo> <path>` — Update file (reply code)\n"
             f"• `/git delete <owner/repo> <path>` — Xóa file\n\n"
             f"🌿 *Branch & PR:*\n"
             f"• `/git branch <owner/repo> <new_branch>` — Tạo branch\n"
@@ -1341,7 +1475,7 @@ async def git_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _git_repo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
         await update.message.reply_text(
-            "❌ *Cú pháp:* `/git repo <tên> [description] [private]`\n"
+            "❌ *Cú pháp:* `/git repo <tên> [description]`\n"
             "Ví dụ: `/git repo my-project Bot AI của tôi`",
             parse_mode=ParseMode.MARKDOWN
         )
@@ -1403,7 +1537,6 @@ async def _git_push(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     owner, repo = repo_path.split("/", 1)
 
-    # Get content from reply or args
     content = ""
     if update.message.reply_to_message and update.message.reply_to_message.text:
         content = update.message.reply_to_message.text
@@ -1675,7 +1808,6 @@ async def _git_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     owner, repo = repo_path.split("/", 1)
 
-    # Get sha first
     status_msg = await update.message.reply_text(
         f"⏳ *Đang xóa file...*\n"
         f"🗑 `{file_path}`",
@@ -1802,7 +1934,6 @@ async def _git_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     try:
-        # Get sha first
         success_get, data_get = await github_agent.get_file(owner, repo, file_path)
         if not success_get:
             await status_msg.edit_text(
@@ -1839,41 +1970,56 @@ async def _git_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN
         )
 
-# ============================ AGENT MODE ============================
+# ============================ AGENT COMMAND (DUAL MODE) ============================
 
 async def agent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Run an autonomous agent task."""
     user_id = update.effective_user.id
     state = get_user_state(user_id)
 
     if not context.args:
+        current_deploy = state.agent_deploy_mode
+        keyboard = [
+            [InlineKeyboardButton("✅ Local ZIP" if current_deploy == "local" else "Local ZIP", callback_data="agentmode_local")],
+            [InlineKeyboardButton("✅ GitHub" if current_deploy == "github" else "GitHub", callback_data="agentmode_github")],
+        ]
         await update.message.reply_text(
-            "🤖 *Agent Mode — Tự động code & push GitHub*\n"
+            f"🤖 *Agent Mode — Tự động code & deploy*\n"
             f"{'━' * 22}\n\n"
-            "*Cách dùng:*\n"
-            "`/agent <mô tả công việc>`\n\n"
-            "*Ví dụ:*\n"
-            "• `/agent Tạo một REST API bằng FastAPI với CRUD users`\n"
-            "• `/agent Viết bot Telegram đơn giản bằng python-telegram-bot`\n"
-            "• `/agent Tạo script crawl dữ liệu từ Wikipedia`\n\n"
-            "*Quy trình:*\n"
-            "1️⃣ AI phân tích yêu cầu\n"
-            "2️⃣ Viết code hoàn chỉnh\n"
-            "3️⃣ Tự kiểm tra syntax\n"
-            "4️⃣ Tạo repo GitHub (nếu cần)\n"
-            "5️⃣ Push code lên repo\n"
-            "6️⃣ Báo cáo kết quả + link",
+            f"*Cách dùng:*\n"
+            f"`/agent <mô tả công việc>`\n\n"
+            f"*Ví dụ:*\n"
+            f"• `/agent Tạo REST API FastAPI + SQLite + JWT`\n"
+            f"• `/agent Viết bot Telegram đơn giản`\n"
+            f"• `/agent Tạo script crawl Wikipedia`\n\n"
+            f"*Deploy mode hiện tại:* `{current_deploy}`\n\n"
+            f"💡 Chọn mode bên dưới hoặc dùng `/deploy <local|github>`",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # Detect deploy mode override
+    deploy_mode = state.agent_deploy_mode
+    task_description = " ".join(context.args)
+
+    if context.args[0].lower() in ("github", "local"):
+        deploy_mode = context.args[0].lower()
+        task_description = " ".join(context.args[1:])
+
+    if not task_description.strip():
+        await update.message.reply_text(
+            "❌ *Thiếu mô tả task!*\n"
+            "Ví dụ: `/agent Tạo REST API bằng FastAPI`",
             parse_mode=ParseMode.MARKDOWN
         )
         return
 
-    task_description = " ".join(context.args)
     task_id = generate_task_id()
-
     task = AgentTask(
         task_id=task_id,
         description=task_description,
-        status="running"
+        status="running",
+        deploy_mode=deploy_mode
     )
     state.agent_tasks.append(task)
 
@@ -1881,17 +2027,26 @@ async def agent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🤖 *Agent Task Bắt Đầu*\n"
         f"{'━' * 22}\n\n"
         f"🆔 *Task ID:* `{task_id}`\n"
-        f"📝 *Mô tả:* {task_description[:100]}...\n\n"
+        f"📝 *Mô tả:* {task_description[:80]}...\n"
+        f"📦 *Deploy:* `{deploy_mode.upper()}`\n\n"
         f"⏳ *Bước 1/5:* Phân tích yêu cầu...",
         parse_mode=ParseMode.MARKDOWN
     )
 
     try:
-        # Step 1: Plan the task via AI
+        session = context.bot_data.get('session')
+        if not session:
+            session = aiohttp.ClientSession()
+            context.bot_data['session'] = session
+
+        model_id = state.current_model if state.mode == "agent" else DEFAULT_AGENT_MODEL
+
+        # Step 1: Plan
         await status_msg.edit_text(
             f"🤖 *Agent Task Đang Chạy*\n"
             f"{'━' * 22}\n\n"
             f"🆔 `{task_id}`\n"
+            f"📦 Deploy: `{deploy_mode.upper()}`\n"
             f"⏳ *Bước 1/5:* Phân tích & lập kế hoạch...",
             parse_mode=ParseMode.MARKDOWN
         )
@@ -1909,13 +2064,8 @@ async def agent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )}
         ]
 
-        session = context.bot_data.get('session')
-        if not session:
-            session = aiohttp.ClientSession()
-            context.bot_data['session'] = session
-
         plan_text, plan_metrics = await call_chat_api(
-            session, DEFAULT_AGENT_MODEL, plan_messages, status_msg, 
+            session, model_id, plan_messages, status_msg,
             system_prompt=AGENT_SYSTEM_PROMPT, max_tokens=2048
         )
 
@@ -1924,6 +2074,7 @@ async def agent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🤖 *Agent Task Đang Chạy*\n"
             f"{'━' * 22}\n\n"
             f"🆔 `{task_id}`\n"
+            f"📦 Deploy: `{deploy_mode.upper()}`\n"
             f"⏳ *Bước 2/5:* Viết code hoàn chỉnh...",
             parse_mode=ParseMode.MARKDOWN
         )
@@ -1933,70 +2084,76 @@ async def agent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"role": "user", "content": (
                 f"Task: {task_description}\n\n"
                 f"Kế hoạch:\n{plan_text}\n\n"
-                f"Hãy viết code HOÀN CHỈNH, đầy đủ, có thể chạy được ngay.\n"
-                f"Bao gồm:\n"
-                f"- Tất cả file cần thiết\n"
-                f"- Docstrings và comments\n"
-                f"- Error handling\n"
-                f"- requirements.txt (nếu là Python)\n"
-                f"- README.md với hướng dẫn chạy\n\n"
-                f"Format: Mỗi file bắt đầu bằng `===FILENAME===`\n"
-                f"Ví dụ: `===main.py===` rồi đến nội dung file."
+                f"VIẾT CODE HOÀN CHỈNH NGAY BÂY GIỜ. Không placeholder. Không giải thích.\n"
+                f"Mỗi file phải nằm trong markers:\n"
+                f"<<<FILE:filename.py>>>\n"
+                f"[nội dung file đầy đủ]\n"
+                f"<<<ENDFILE>>>\n\n"
+                f"BẮT BUỘC có:\n"
+                f"- main file (main.py hoặc index.js hoặc tương đương)\n"
+                f"- requirements.txt / package.json\n"
+                f"- README.md với hướng dẫn chạy\n"
+                f"- .env.example nếu cần biến môi trường\n\n"
+                f"Code phải chạy được ngay, có docstring, error handling, type hints."
             )}
         ]
 
         code_text, code_metrics = await call_chat_api(
-            session, DEFAULT_AGENT_MODEL, code_messages, status_msg,
+            session, model_id, code_messages, status_msg,
             system_prompt=AGENT_SYSTEM_PROMPT, max_tokens=MAX_OUTPUT_TOKENS
         )
 
-        # Step 3: Syntax check
+        # Step 3: Parse & syntax check
         await status_msg.edit_text(
             f"🤖 *Agent Task Đang Chạy*\n"
             f"{'━' * 22}\n\n"
             f"🆔 `{task_id}`\n"
-            f"⏳ *Bước 3/5:* Kiểm tra syntax & logic...",
+            f"📦 Deploy: `{deploy_mode.upper()}`\n"
+            f"⏳ *Bước 3/5:* Parse files & kiểm tra syntax...",
             parse_mode=ParseMode.MARKDOWN
         )
 
-        # Extract files from code_text
-        files = {}
-        current_file = None
-        current_content = []
+        files = parse_agent_files(code_text)
 
-        for line in code_text.split('\n'):
-            if line.startswith('===') and line.endswith('==='):
-                if current_file and current_content:
-                    files[current_file] = '\n'.join(current_content)
-                current_file = line.replace('===', '').strip()
-                current_content = []
-            elif current_file is not None:
-                current_content.append(line)
-
-        if current_file and current_content:
-            files[current_file] = '\n'.join(current_content)
-
-        # If no files extracted, treat whole response as single file
         if not files:
-            files = {"main.py": code_text}
+            # Retry with stronger prompt
+            retry_messages = [
+                {"role": "system", "content": AGENT_SYSTEM_PROMPT},
+                {"role": "user", "content": (
+                    f"Task: {task_description}\n\n"
+                    f"Code trước đó không parse được. Hãy viết LẠI với format CHÍNH XÁC:\n\n"
+                    f"<<<FILE:main.py>>>\n"
+                    f"import os\n"
+                    f"def main():\n"
+                    f"    pass\n"
+                    f"<<<ENDFILE>>>\n\n"
+                    f"Viết TẤT CẢ các file cần thiết theo format trên."
+                )}
+            ]
 
-        # Syntax check for Python files
+            code_text, code_metrics = await call_chat_api(
+                session, model_id, retry_messages, status_msg,
+                system_prompt=AGENT_SYSTEM_PROMPT, max_tokens=MAX_OUTPUT_TOKENS
+            )
+            files = parse_agent_files(code_text)
+
+        # Syntax check
         syntax_issues = []
         for fname, fcontent in files.items():
             if fname.endswith('.py'):
                 try:
                     compile(fcontent, fname, 'exec')
                 except SyntaxError as e:
-                    syntax_issues.append(f"❌ {fname}: Line {e.lineno}: {e.msg}")
+                    syntax_issues.append(f"{fname}: Line {e.lineno}: {e.msg}")
 
+        # Step 4: Auto-fix if needed
         if syntax_issues:
-            # Auto-fix attempt
             await status_msg.edit_text(
                 f"🤖 *Agent Task Đang Chạy*\n"
                 f"{'━' * 22}\n\n"
                 f"🆔 `{task_id}`\n"
-                f"⚠️ *Phát hiện lỗi syntax:*\n"
-                f"{'\n'.join(syntax_issues[:3])}\n\n"
+                f"📦 Deploy: `{deploy_mode.upper()}`\n"
+                f"⚠️ *Phát hiện {len(syntax_issues)} lỗi syntax*\n"
                 f"⏳ *Bước 3.5/5:* Tự động sửa lỗi...",
                 parse_mode=ParseMode.MARKDOWN
             )
@@ -2006,62 +2163,157 @@ async def agent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 {"role": "user", "content": (
                     f"Code có lỗi syntax:\n\n"
                     f"{'\n'.join(syntax_issues)}\n\n"
-                    f"Hãy sửa lại code. Giữ nguyên format `===FILENAME===`.\n"
+                    f"Hãy sửa lại TẤT CẢ file. Giữ nguyên format <<<FILE:>>> <<<ENDFILE>>>.\n"
                     f"Chỉ trả về code đã sửa, không giải thích."
                 )}
             ]
 
             fixed_code, _ = await call_chat_api(
-                session, DEFAULT_AGENT_MODEL, fix_messages, status_msg,
+                session, model_id, fix_messages, status_msg,
                 system_prompt=AGENT_SYSTEM_PROMPT, max_tokens=MAX_OUTPUT_TOKENS
             )
 
-            # Re-extract files
-            files = {}
-            current_file = None
-            current_content = []
-            for line in fixed_code.split('\n'):
-                if line.startswith('===') and line.endswith('==='):
-                    if current_file and current_content:
-                        files[current_file] = '\n'.join(current_content)
-                    current_file = line.replace('===', '').strip()
-                    current_content = []
-                elif current_file is not None:
-                    current_content.append(line)
-            if current_file and current_content:
-                files[current_file] = '\n'.join(current_content)
-            if not files:
-                files = {"main.py": fixed_code}
+            files = parse_agent_files(fixed_code)
 
-        # Step 4: Create/push to GitHub
+            # Re-check
+            syntax_issues = []
+            for fname, fcontent in files.items():
+                if fname.endswith('.py'):
+                    try:
+                        compile(fcontent, fname, 'exec')
+                    except SyntaxError as e:
+                        syntax_issues.append(f"{fname}: Line {e.lineno}: {e.msg}")
+
+        # Step 5: Deploy
         await status_msg.edit_text(
             f"🤖 *Agent Task Đang Chạy*\n"
             f"{'━' * 22}\n\n"
             f"🆔 `{task_id}`\n"
-            f"⏳ *Bước 4/5:* Push lên GitHub...",
+            f"📦 Deploy: `{deploy_mode.upper()}`\n"
+            f"⏳ *Bước 4/5:* Đang deploy...",
             parse_mode=ParseMode.MARKDOWN
         )
 
+        if deploy_mode == "github":
+            await _deploy_github(update, context, state, task, files, status_msg, plan_text, code_metrics, syntax_issues)
+        else:
+            await _deploy_local(update, context, state, task, files, status_msg, plan_text, code_metrics, syntax_issues)
+
+    except Exception as e:
+        task.status = "failed"
+        task.error = str(e)
+        task.completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        state.stats.tasks_failed += 1
+
+        error_trace = traceback.format_exc()
+        logger.error(f"Agent task failed: {e}\n{error_trace}")
+
+        await status_msg.edit_text(
+            f"❌ *Agent Task Thất Bại*\n"
+            f"{'━' * 22}\n\n"
+            f"🆔 `{task_id}`\n"
+            f"⚠️ *Lỗi:* `{str(e)[:300]}`\n\n"
+            f"💡 *Thử:*\n"
+            f"• Đơn giản hóa yêu cầu\n"
+            f"• Thử lại với `/agent local <task>`\n"
+            f"• Kiểm tra GitHub token nếu dùng github mode\n\n"
+            f"🧠 AI đã ghi nhận lỗi này.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+        await agent_self_reflect(task, state)
+
+async def _deploy_local(update, context, state, task, files, status_msg, plan_text, code_metrics, syntax_issues):
+    """Deploy agent task as local ZIP file."""
+    try:
+        zip_path = await save_agent_local(task.task_id, files)
+        task.local_path = str(zip_path)
+        task.status = "completed"
+        task.completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        task.files_created = list(files.keys())
+        state.stats.tasks_completed += 1
+
+        # Build success message
+        file_list = "\n".join([f"• `{f}` ({len(c)} chars)" for f, c in files.items()])
+        syntax_status = "✅ Tất cả file Python hợp lệ" if not syntax_issues else "\n".join([f"⚠️ {i}" for i in syntax_issues[:3]])
+
+        result_msg = (
+            f"✅ *Agent Task Hoàn Thành!*\n"
+            f"{'━' * 22}\n\n"
+            f"🆔 *Task ID:* `{task.task_id}`\n"
+            f"📝 *Mô tả:* {task.description[:80]}...\n"
+            f"📦 *Deploy:* LOCAL ZIP\n\n"
+            f"📁 *Files ({len(files)}):*\n"
+            f"{file_list}\n\n"
+            f"🔍 *Syntax Check:*\n"
+            f"{syntax_status}\n\n"
+            f"📊 *AI Metrics:*\n"
+            f"• ⏱ Latency: `{code_metrics.get('latency', 0):.2f}s`\n"
+            f"• 📝 Output: `{code_metrics.get('output_tokens', 0)}` tokens\n\n"
+            f"📎 File ZIP đính kèm bên dưới 👇"
+        )
+
+        await status_msg.edit_text(result_msg, parse_mode=ParseMode.MARKDOWN)
+
+        # Send ZIP file
+        with open(zip_path, 'rb') as f:
+            zip_bio = io.BytesIO(f.read())
+        zip_bio.name = f"{task.task_id}.zip"
+
+        await update.message.reply_document(
+            document=zip_bio,
+            caption=f"📦 Agent Output — {len(files)} files"
+        )
+
+        # Also send code preview as text file
+        preview_text = f"# {task.description}\n# Task ID: {task.task_id}\n# Deploy: LOCAL\n\n"
+        preview_text += f"## Plan\n{plan_text}\n\n"
+        preview_text += f"## Files\n\n"
+        for fname, fcontent in files.items():
+            preview_text += f"\n{'='*60}\n# FILE: {fname}\n{'='*60}\n\n{fcontent}\n"
+
+        preview_bio = io.BytesIO(preview_text.encode('utf-8'))
+        preview_bio.name = f"{task.task_id}_preview.txt"
+        await update.message.reply_document(
+            document=preview_bio,
+            caption=f"📄 Full code preview"
+        )
+
+        # Self-reflection
+        reflection = await agent_self_reflect(task, state)
+        await update.message.reply_text(reflection, parse_mode=ParseMode.MARKDOWN)
+
+    except Exception as e:
+        raise e
+
+async def _deploy_github(update, context, state, task, files, status_msg, plan_text, code_metrics, syntax_issues):
+    """Deploy agent task to GitHub repository."""
+    try:
         # Get GitHub user
         success_user, user_data = await github_agent.get_user()
         if not success_user:
-            raise Exception("Không thể xác thực GitHub token")
+            raise Exception("GitHub token không hợp lệ (Bad credentials). Hãy dùng `/deploy local` hoặc cập nhật token.")
 
         github_username = user_data.get("login", "")
         state.github_username = github_username
 
-        # Create repo name from task description
-        repo_name = re.sub(r'[^a-zA-Z0-9_-]', '-', task_description[:30].lower().strip())
-        repo_name = repo_name.strip('-') or f"fizzpop-agent-{task_id[:8]}"
+        # Smart repo name
+        repo_name = smart_repo_name(task.description)
 
         # Create repo
         success_repo, repo_data = await github_agent.create_repo(
-            repo_name, f"Auto-generated by FizzPop Agent: {task_description[:100]}"
+            repo_name,
+            f"Auto-generated by FizzPop Agent: {task.description[:100]}",
+            private=False
         )
 
         if not success_repo:
-            # Repo might already exist, try to use it
-            pass
+            error_msg = repo_data.get("message", str(repo_data)) if isinstance(repo_data, dict) else str(repo_data)
+            if "already exists" in error_msg.lower():
+                # Use existing repo
+                pass
+            else:
+                raise Exception(f"Lỗi tạo repo: {error_msg}")
 
         repo_full = f"{github_username}/{repo_name}"
         task.repo_url = f"https://github.com/{repo_full}"
@@ -2075,77 +2327,80 @@ async def agent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             if success_push:
                 pushed_files.append(fname)
-            await asyncio.sleep(0.5)  # Rate limit protection
+            await asyncio.sleep(0.5)
 
-        # Step 5: Report
         task.status = "completed"
         task.completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         task.files_created = pushed_files
         state.stats.tasks_completed += 1
 
-        # Self-reflection
-        reflection = await agent_self_reflect(task, state)
-
-        total_latency = plan_metrics['latency'] + code_metrics['latency']
-        total_input = plan_metrics['input_tokens'] + code_metrics['input_tokens']
-        total_output = plan_metrics['output_tokens'] + code_metrics['output_tokens']
+        file_list = "\n".join([f"• `{f}`" for f in pushed_files])
+        syntax_status = "✅ Tất cả file Python hợp lệ" if not syntax_issues else "\n".join([f"⚠️ {i}" for i in syntax_issues[:3]])
 
         result_msg = (
             f"✅ *Agent Task Hoàn Thành!*\n"
             f"{'━' * 22}\n\n"
-            f"🆔 *Task ID:* `{task_id}`\n"
-            f"📝 *Mô tả:* {task_description[:80]}...\n\n"
+            f"🆔 *Task ID:* `{task.task_id}`\n"
+            f"📝 *Mô tả:* {task.description[:80]}...\n"
+            f"🔗 *Deploy:* GITHUB\n\n"
             f"📦 *Repository:*\n"
-            f"🔗 [{repo_full}](https://github.com/{repo_full})\n\n"
+            f"[{repo_full}](https://github.com/{repo_full})\n\n"
             f"📁 *Files đã push ({len(pushed_files)}):*\n"
-            f"{'\n'.join([f'• `{f}`' for f in pushed_files])}\n\n"
+            f"{file_list}\n\n"
             f"🔍 *Syntax Check:*\n"
-            f"{'✅ Tất cả file Python hợp lệ' if not syntax_issues else chr(10).join(syntax_issues[:3])}\n\n"
+            f"{syntax_status}\n\n"
             f"📊 *AI Metrics:*\n"
-            f"• ⏱ Latency: `{total_latency:.2f}s`\n"
-            f"• 📝 Input: `{total_input}` tokens\n"
-            f"• 💬 Output: `{total_output}` tokens\n"
-            f"• 📦 Total: `{total_input + total_output}` tokens\n\n"
-            f"{reflection}"
+            f"• ⏱ Latency: `{code_metrics.get('latency', 0):.2f}s`\n"
+            f"• 📝 Output: `{code_metrics.get('output_tokens', 0)}` tokens"
         )
 
         await status_msg.edit_text(result_msg, parse_mode=ParseMode.MARKDOWN)
 
-        # Send code as file too
-        full_code_text = f"# {task_description}\n# Repo: https://github.com/{repo_full}\n\n"
+        # Send code preview as file too
+        preview_text = f"# {task.description}\n# Repo: https://github.com/{repo_full}\n# Task ID: {task.task_id}\n\n"
+        preview_text += f"## Plan\n{plan_text}\n\n"
+        preview_text += f"## Files\n\n"
         for fname, fcontent in files.items():
-            full_code_text += f"\n{'='*60}\n# FILE: {fname}\n{'='*60}\n\n{fcontent}\n"
+            preview_text += f"\n{'='*60}\n# FILE: {fname}\n{'='*60}\n\n{fcontent}\n"
 
-        bio = io.BytesIO(full_code_text.encode('utf-8'))
-        bio.name = f"agent_{task_id[:8]}_code.txt"
+        preview_bio = io.BytesIO(preview_text.encode('utf-8'))
+        preview_bio.name = f"{task.task_id}_preview.txt"
         await update.message.reply_document(
-            document=bio,
-            caption=f"📄 Full source code — {len(files)} files"
+            document=preview_bio,
+            caption=f"📄 Full code preview"
         )
+
+        # Self-reflection
+        reflection = await agent_self_reflect(task, state)
+        await update.message.reply_text(reflection, parse_mode=ParseMode.MARKDOWN)
 
     except Exception as e:
-        task.status = "failed"
-        task.error = str(e)
-        task.completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        state.stats.tasks_failed += 1
+        raise e
 
-        error_trace = traceback.format_exc()
+async def agent_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-        await status_msg.edit_text(
-            f"❌ *Agent Task Thất Bại*\n"
-            f"{'━' * 22}\n\n"
-            f"🆔 `{task_id}`\n"
-            f"⚠️ *Lỗi:* `{str(e)[:300]}`\n\n"
-            f"💡 *Thử:*\n"
-            f"• Kiểm tra GitHub token\n"
-            f"• Đơn giản hóa yêu cầu\n"
-            f"• Thử lại với `/agent`\n\n"
-            f"🧠 AI đã ghi nhận lỗi này để cải thiện.",
+    user_id = update.effective_user.id
+    state = get_user_state(user_id)
+    data = query.data
+
+    if data == "agentmode_local":
+        state.agent_deploy_mode = "local"
+        await query.edit_message_text(
+            "✅ *Agent deploy mode: LOCAL ZIP*\n\n"
+            "📦 Agent sẽ lưu code thành file .zip\n"
+            "💡 Dùng `/agent <mô tả>` để chạy.",
             parse_mode=ParseMode.MARKDOWN
         )
-
-        # Self-reflection on failure
-        await agent_self_reflect(task, state)
+    elif data == "agentmode_github":
+        state.agent_deploy_mode = "github"
+        await query.edit_message_text(
+            "✅ *Agent deploy mode: GITHUB*\n\n"
+            "🔗 Agent sẽ push code lên GitHub\n"
+            "💡 Dùng `/agent <mô tả>` để chạy.",
+            parse_mode=ParseMode.MARKDOWN
+        )
 
 # ============================ MAIN MESSAGE HANDLER ============================
 
@@ -2164,7 +2419,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     model_id = state.current_model
     mode_name = MODE_CONFIG[mode]["name"]
 
-    # Validate model
+    # Validate model exists in current mode
     valid_models = [m[1] for m in MODE_CONFIG[mode]["models"]]
     if model_id not in valid_models:
         model_id = MODE_CONFIG[mode]["default"]
@@ -2210,7 +2465,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             await update.message.reply_text(error_msg, parse_mode=ParseMode.MARKDOWN)
 
-        # Record error for self-improvement
         state.last_error = str(e)
         state.self_notes.append(f"Error in {mode} mode: {str(e)[:200]}")
 
@@ -2245,12 +2499,11 @@ async def _handle_agent_chat(update, context, state, model_id, user_input, statu
     if len(state.history) > MAX_HISTORY * 2:
         state.history = state.history[-(MAX_HISTORY * 2):]
 
-    # Add agent context
     agent_context = AGENT_SYSTEM_PROMPT
     if state.github_username:
         agent_context += f"\n\nGitHub user: {state.github_username}"
     if state.self_notes:
-        agent_context += f"\n\nLessons learned:\n" + "\n".join(state.self_notes[-5:])
+        agent_context += "\n\nLessons learned:\n" + "\n".join(state.self_notes[-5:])
 
     messages = [{"role": "system", "content": agent_context}] + state.history
 
@@ -2291,7 +2544,6 @@ async def _handle_embed(update, context, state, model_id, user_input, status_msg
     except Exception:
         await update.message.reply_text(full_text)
 
-    # Send full vector as file
     vector_bio = io.BytesIO(full_vector.encode('utf-8'))
     vector_bio.name = f"embedding_{model_id.replace('/', '_')}.json"
     await update.message.reply_document(
@@ -2331,7 +2583,6 @@ async def _handle_tts(update, context, state, model_id, user_input, status_msg, 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Update {update} caused error {context.error}")
 
-    # Record error for self-improvement
     if update and update.effective_user:
         state = get_user_state(update.effective_user.id)
         error_str = str(context.error)[:300]
@@ -2351,17 +2602,17 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def post_init(application: Application):
     application.bot_data['session'] = aiohttp.ClientSession()
     await github_agent.init_session()
-    logger.info("✅ Bot initialized. Sessions created.")
+    logger.info("Bot initialized. Sessions created.")
 
 async def post_shutdown(application: Application):
     session = application.bot_data.get('session')
     if session:
         await session.close()
     await github_agent.close()
-    logger.info("🛑 All sessions closed.")
+    logger.info("All sessions closed.")
 
 def main():
-    logger.info("🚀 Starting FizzPop AI Agent Bot v4.0...")
+    logger.info("Starting FizzPop AI Agent Bot v5.0...")
 
     application = (
         ApplicationBuilder()
@@ -2388,11 +2639,14 @@ def main():
     application.add_handler(CommandHandler('analyze', analyze_command))
     application.add_handler(CommandHandler('tasks', tasks_command))
     application.add_handler(CommandHandler('learn', learn_command))
+    application.add_handler(CommandHandler('deploy', deploy_mode_command))
 
     # Callbacks
     application.add_handler(CallbackQueryHandler(model_callback, pattern="^model_"))
-    application.add_handler(CallbackQueryHandler(model_callback, pattern="^refresh_models"))
+    application.add_handler(CallbackQueryHandler(model_callback, pattern="^refresh_models$"))
     application.add_handler(CallbackQueryHandler(mode_callback, pattern="^setmode_"))
+    application.add_handler(CallbackQueryHandler(deploy_mode_callback, pattern="^deploymode_"))
+    application.add_handler(CallbackQueryHandler(agent_mode_callback, pattern="^agentmode_"))
 
     # Messages
     application.add_handler(
