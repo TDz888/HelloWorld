@@ -1,2663 +1,1957 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-╔══════════════════════════════════════════════════════════════════╗
-║              🤖 FizzPop AI Agent Bot v5.0 — AGENT MODE         ║
-║     Self-Improving AI: Chat | Embed | TTS | GitHub | Local ZIP ║
-╚══════════════════════════════════════════════════════════════════╝
+╔════════════════════════════════════════════════════════════════════════╗
+║              🤖 FizzPop AI Agent Bot v7.0 — SINGLE FILE POWER          ║
+║     All-in-One: Chat | Agent | RAG | Multi-Model | Auto-Optimize      ║
+║     ✨ No external config • Hardcoded tokens • Telegram-native UX     ║
+╚════════════════════════════════════════════════════════════════════════╝
 """
 
-import asyncio
-import base64
-import hashlib
-import io
-import json
-import logging
-import os
-import re
-import shutil
-import sys
-import tempfile
-import time
-import traceback
-import zipfile
-from dataclasses import dataclass, field, asdict
-from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Any, Union
+import asyncio, base64, hashlib, io, json, logging, os, re, shutil, sys, tempfile, time, traceback, zipfile
+from dataclasses import dataclass, field, asdict, replace
+from datetime import datetime, timedelta
+from enum import Enum, auto
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Any, Union, Callable, Set
+from functools import wraps, lru_cache
+from contextlib import asynccontextmanager, contextmanager
 
+# Third-party (install: pip install python-telegram-bot aiohttp)
 import aiohttp
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update, InlineKeyboardButton, InlineKeyboardMarkup, Message, User, Chat,
+    InputMediaPhoto, InputMediaDocument, ParseMode, UpdateType
+)
 from telegram.ext import (
     Application, ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    MessageHandler, ContextTypes, filters
+    MessageHandler, ContextTypes, filters, ConversationHandler, TypeHandler
 )
-from telegram.constants import ParseMode, ChatAction
+from telegram.constants import ParseMode as TPM, ChatAction, MessageLimit, FileType
+from telegram.error import BadRequest, NetworkError, RetryAfter, TelegramError
 
-# ============================ CONFIGURATION ============================
+# ============================================================================
+# 🔐 CONFIGURATION — HARDCODED (As Requested)
+# ============================================================================
 
-TELEGRAM_BOT_TOKEN = "8909561772:AAGQgxrbvXbi-RACF4_Z7iiS4R7NA6Za6wU"
-API_KEY = "sk-e317a237354192e26f99951f06e4882779e8a0e08e86d2f71242e8ff770bdf24"
-GITHUB_TOKEN = "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"
-GITHUB_API_BASE = "https://api.github.com"
+class Config:
+    """All config hardcoded for simplicity. Edit directly."""
+    
+    # === TELEGRAM ===
+    BOT_TOKEN = "8909561772:AAGQgxrbvXbi-RACF4_Z7iiS4R7NA6Za6wU"
+    
+    # === AI PROVIDER (ckey.vn) ===
+    API_KEY = "sk-e317a237354192e26f99951f06e4882779e8a0e08e86d2f71242e8ff770bdf24"
+    API_BASE = "https://ckey.vn/v1"
+    
+    # === GITHUB ===
+    GITHUB_TOKEN = "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"
+    
+    # === PATHS ===
+    WORK_DIR = Path("/tmp/fizzpop_agent")  # Auto-created
+    MAX_HISTORY = 40  # Messages to keep in context
+    MAX_TOKENS_PER_CALL = 8192
+    API_TIMEOUT = 180  # seconds
+    
+    # === AGENT SETTINGS ===
+    DEFAULT_CHAT_MODEL = "deepseek-3.2"
+    DEFAULT_AGENT_MODEL = "mistral-medium-3.5-128b"
+    AUTO_MODEL_SELECTION = True  # v7 feature: smart routing
+    CONTEXT_COMPRESSION = True  # Auto-summarize old messages
+    STREAMING_RESPONSES = True  # Show tokens as they arrive
+    
+    # === RATE LIMITS ===
+    USER_REQUESTS_PER_MIN = 15
+    GLOBAL_REQUESTS_PER_MIN = 200
+    
+    # === AUTO-CLEANUP ===
+    ZIP_RETENTION_HOURS = 48
+    MAX_SELF_NOTES = 100
+    
+    @classmethod
+    def init(cls):
+        cls.WORK_DIR.mkdir(parents=True, exist_ok=True)
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s | %(levelname)-7s | %(message)s',
+            handlers=[
+                logging.FileHandler(cls.WORK_DIR / "bot.log", encoding='utf-8', mode='a'),
+                logging.StreamHandler(sys.stdout)
+            ]
+        )
+        logging.info(f"🚀 FizzPop v7.0 initialized | Work dir: {cls.WORK_DIR}")
 
-API_CHAT_URL = "https://ckey.vn/v1/chat/completions"
-API_EMBED_URL = "https://ckey.vn/v1/embeddings"
-API_TTS_URL = "https://ckey.vn/v1/audio/speech"
+# ============================================================================
+# 🧠 SMART MODEL ROUTER — v7 Feature #1
+# ============================================================================
 
-# Agent work directory for local ZIP mode
-AGENT_WORK_DIR = Path("/mnt/agents/output/agent_work")
-AGENT_WORK_DIR.mkdir(parents=True, exist_ok=True)
+class TaskType(Enum):
+    CHAT = "chat"
+    CODE_GEN = "code_gen"
+    CODE_FIX = "code_fix"
+    ANALYSIS = "analysis"
+    CREATIVE = "creative"
+    SHORT_ANSWER = "short"
+    LONG_FORM = "long_form"
 
-SYSTEM_PROMPT = """You are FizzPop AI Agent — a self-improving autonomous AI assistant.
+class ModelProfile:
+    """Profile for each model: capabilities, cost, speed."""
+    def __init__(self, model_id: str, display: str, category: str,
+                 strengths: List[TaskType], cost_tier: int, speed_tier: int,
+                 max_context: int = 128000):
+        self.id = model_id
+        self.display = display
+        self.category = category
+        self.strengths = set(strengths)
+        self.cost_tier = cost_tier  # 1=cheap, 3=expensive
+        self.speed_tier = speed_tier  # 1=fast, 3=slow
+        self.max_context = max_context
+        self.usage_count = 0
+        self.success_rate = 1.0
+    
+    def score_for_task(self, task_type: TaskType, budget_conscious: bool = False) -> float:
+        """Calculate suitability score (0-1) for a task."""
+        score = 0.0
+        # Capability match (40%)
+        if task_type in self.strengths:
+            score += 0.4
+        # Speed (30%)
+        score += (4 - self.speed_tier) / 3 * 0.3
+        # Cost (20%) — lower tier = better if budget conscious
+        if budget_conscious:
+            score += (4 - self.cost_tier) / 3 * 0.2
+        else:
+            score += 0.2  # Cost doesn't matter
+        # Reliability (10%)
+        score += self.success_rate * 0.1
+        return min(1.0, score)
 
-CORE CAPABILITIES:
-1. You can write, analyze, debug, and refactor code in ANY programming language
-2. You can create GitHub repositories, push files, manage branches, create PRs
-3. You can analyze file structures, detect syntax errors, suggest optimizations
-4. You learn from every task and improve your responses over time
-5. You maintain context across long conversations and complex multi-step tasks
+# Model catalog with profiles
+MODEL_PROFILES = {
+    # Fast & cheap for simple tasks
+    "deepseek-3.2": ModelProfile(
+        "deepseek-3.2", "DeepSeek V3", "DeepSeek",
+        [TaskType.CHAT, TaskType.SHORT_ANSWER, TaskType.CODE_GEN],
+        cost_tier=1, speed_tier=1
+    ),
+    "glm4.7": ModelProfile(
+        "glm4.7", "GLM-4.7", "GLM",
+        [TaskType.CHAT, TaskType.ANALYSIS, TaskType.CODE_GEN],
+        cost_tier=1, speed_tier=1
+    ),
+    # Balanced for general coding
+    "mistral-medium-3.5-128b": ModelProfile(
+        "mistral-medium-3.5-128b", "Mistral Medium 3.5", "Mistral",
+        [TaskType.CODE_GEN, TaskType.CODE_FIX, TaskType.ANALYSIS, TaskType.LONG_FORM],
+        cost_tier=2, speed_tier=2
+    ),
+    "qwen3-coder-480b-a35b-instruct": ModelProfile(
+        "qwen3-coder-480b-a35b-instruct", "Qwen3 Coder 480B", "Qwen",
+        [TaskType.CODE_GEN, TaskType.CODE_FIX, TaskType.ANALYSIS],
+        cost_tier=2, speed_tier=2
+    ),
+    # Premium for complex reasoning
+    "claude-sonnet-4.6": ModelProfile(
+        "claude-sonnet-4.6", "Claude Sonnet 4.6", "Claude",
+        [TaskType.ANALYSIS, TaskType.LONG_FORM, TaskType.CREATIVE, TaskType.CODE_FIX],
+        cost_tier=3, speed_tier=2
+    ),
+    "gpt-5.4": ModelProfile(
+        "gpt-5.4", "GPT-5.4", "GPT",
+        [TaskType.ANALYSIS, TaskType.LONG_FORM, TaskType.CREATIVE, TaskType.CODE_GEN],
+        cost_tier=3, speed_tier=2
+    ),
+    # Specialized
+    "google-tts/vi": ModelProfile(
+        "google-tts/vi", "Google TTS Vietnamese", "TTS",
+        [], cost_tier=1, speed_tier=1
+    ),
+    "text-embedding-3-small": ModelProfile(
+        "text-embedding-3-small", "Text Embedding 3 Small", "Embedding",
+        [], cost_tier=1, speed_tier=1
+    ),
+}
 
-AGENT BEHAVIOR:
-- When asked to code: provide complete, runnable, well-documented code
-- When asked to debug: analyze error logs, identify root cause, provide fix
-- When asked to review: check syntax, logic, security, performance, style
-- When asked to architect: design scalable, maintainable systems
-- Always explain your reasoning and provide alternatives when relevant
-- If uncertain, say so honestly rather than hallucinate
+class SmartModelRouter:
+    """v7 Feature: Auto-select best model for each task."""
+    
+    @staticmethod
+    def detect_task_type(text: str, context: List[Dict]) -> TaskType:
+        """Heuristically detect task type from input."""
+        text_lower = text.lower()
+        
+        # Code-related keywords
+        code_keywords = ['code', 'function', 'def ', 'import ', 'class ', 
+                        'javascript', 'python', 'react', 'api', 'endpoint',
+                        'bug', 'error', 'fix', 'debug', 'syntax']
+        if any(kw in text_lower for kw in code_keywords):
+            if any(kw in text_lower for kw in ['fix', 'bug', 'error', 'debug']):
+                return TaskType.CODE_FIX
+            return TaskType.CODE_GEN
+        
+        # Short answer indicators
+        if len(text) < 50 and any(q in text for q in ['?', 'là gì', 'tại sao', 'how', 'what']):
+            return TaskType.SHORT_ANSWER
+        
+        # Creative/long form
+        if any(kw in text_lower for kw in ['viết', 'write', 'story', 'poem', 'essay', 'content']):
+            return TaskType.CREATIVE if len(text) < 200 else TaskType.LONG_FORM
+        
+        # Analysis
+        if any(kw in text_lower for kw in ['phân tích', 'analyze', 'compare', 'review', 'explain']):
+            return TaskType.ANALYSIS
+        
+        # Default
+        return TaskType.CHAT if len(text) < 500 else TaskType.LONG_FORM
+    
+    @classmethod
+    def select_best_model(cls, user_input: str, history: List[Dict], 
+                          user_budget_conscious: bool = True) -> Tuple[str, str]:
+        """Return (model_id, display_name) for best model."""
+        task_type = cls.detect_task_type(user_input, history)
+        
+        candidates = []
+        for model_id, profile in MODEL_PROFILES.items():
+            if model_id in ["google-tts/vi", "text-embedding-3-small"]:
+                continue  # Skip specialized models
+            score = profile.score_for_task(task_type, user_budget_conscious)
+            # Bonus for models with good history with this task type
+            if task_type in profile.strengths and profile.success_rate > 0.9:
+                score += 0.1
+            candidates.append((model_id, profile.display, score))
+        
+        # Sort by score descending
+        candidates.sort(key=lambda x: -x[2])
+        
+        # Return top choice
+        best_id, best_display, _ = candidates[0]
+        return best_id, best_display
+    
+    @classmethod
+    def record_result(cls, model_id: str, success: bool):
+        """Update model stats based on outcome."""
+        if model_id in MODEL_PROFILES:
+            profile = MODEL_PROFILES[model_id]
+            profile.usage_count += 1
+            # Exponential moving average for success rate
+            alpha = 0.1
+            profile.success_rate = alpha * (1.0 if success else 0.0) + (1-alpha) * profile.success_rate
 
-SELF-IMPROVEMENT:
-- After completing a task, reflect on what could be improved
-- Remember patterns that worked well and avoid those that failed
-- Maintain a mental model of the user's preferences and coding style
+# ============================================================================
+# 🗜️ CONTEXT COMPRESSOR — v7 Feature #2
+# ============================================================================
+
+class ContextCompressor:
+    """Auto-compress old messages to stay within token limits."""
+    
+    # Approximate tokens per char (conservative)
+    CHARS_PER_TOKEN = 4
+    
+    @classmethod
+    def estimate_tokens(cls, messages: List[Dict]) -> int:
+        """Rough token estimate."""
+        total_chars = sum(len(m.get('content', '')) for m in messages)
+        # Add overhead for role labels
+        return len(messages) * 5 + total_chars // cls.CHARS_PER_TOKEN
+    
+    @classmethod
+    def compress_history(cls, history: List[Dict], max_tokens: int = 6000) -> List[Dict]:
+        """Compress history by summarizing old messages."""
+        if not history:
+            return []
+        
+        # Keep last N messages intact
+        keep_recent = 8
+        recent = history[-keep_recent:] if len(history) > keep_recent else history
+        
+        if len(history) <= keep_recent:
+            return history
+        
+        # Summarize older messages
+        old_messages = history[:-keep_recent]
+        old_text = "\n".join([
+            f"{m['role']}: {m['content'][:200]}" for m in old_messages[-20:]  # Last 20 old
+        ])
+        
+        summary = f"[Tóm tắt {len(old_messages)} tin nhắn trước]: {old_text[:800]}..."
+        
+        return [{"role": "system", "content": summary}] + recent
+    
+    @classmethod
+    def smart_truncate(cls, content: str, max_chars: int = 3000) -> str:
+        """Truncate content while preserving code blocks."""
+        if len(content) <= max_chars:
+            return content
+        
+        # Try to cut at logical boundaries
+        # 1. End of code block
+        if "```" in content:
+            blocks = content.split("```")
+            if len(blocks) >= 3:
+                # Keep first code block + some context
+                result = "```".join(blocks[:3])
+                if len(result) < max_chars:
+                    return result + "\n```[...tiếp tục trong file đính kèm...]"
+        
+        # 2. End of sentence
+        sentences = content.split('. ')
+        result = []
+        for s in sentences:
+            if len('. '.join(result + [s])) > max_chars - 50:
+                break
+            result.append(s)
+        
+        return '. '.join(result) + ' [...]'
+
+# ============================================================================
+# 🔄 STREAMING RESPONSE HANDLER — v7 Feature #3
+# ============================================================================
+
+class StreamingHandler:
+    """Handle streaming responses with real-time updates."""
+    
+    @staticmethod
+    async def stream_chat(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                          model_id: str, messages: List[Dict],
+                          status_msg: Message, api_key: str, api_base: str):
+        """Stream AI response token by token with progress updates."""
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        
+        payload = {
+            "model": model_id,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": Config.MAX_TOKENS_PER_CALL,
+            "stream": True  # Enable streaming
+        }
+        
+        # Initial status
+        accumulated = []
+        start_time = time.time()
+        
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=Config.API_TIMEOUT)) as session:
+                async with session.post(f"{api_base}/chat/completions", 
+                                       headers=headers, json=payload) as resp:
+                    
+                    if resp.status != 200:
+                        error = await resp.text()
+                        raise Exception(f"API Error {resp.status}: {error[:200]}")
+                    
+                    # Process streaming response
+                    async for line in resp.content:
+                        line = line.decode('utf-8').strip()
+                        if not line or line == 'data: [DONE]':
+                            continue
+                        if line.startswith('data: '):
+                            try:
+                                chunk = json.loads(line[6:])
+                                content = chunk.get('choices', [{}])[0].get('delta', {}).get('content', '')
+                                if content:
+                                    accumulated.append(content)
+                                    # Update every ~100 chars or 2 seconds
+                                    if len(''.join(accumulated)) % 100 < len(content) or time.time() - start_time > 2:
+                                        full_text = ''.join(accumulated)
+                                        preview = full_text[-300:] if len(full_text) > 300 else full_text
+                                        await status_msg.edit_text(
+                                            f"🤖 *Đang trả lời...*\n\n`{preview}`\n\n⏱ {time.time()-start_time:.1f}s",
+                                            parse_mode=TPM.MARKDOWN
+                                        )
+                            except json.JSONDecodeError:
+                                continue
+            
+            final_text = ''.join(accumulated)
+            latency = time.time() - start_time
+            
+            return final_text, {
+                'latency': latency,
+                'output_chars': len(final_text),
+                'streaming': True
+            }
+            
+        except asyncio.TimeoutError:
+            # Fallback to non-streaming if streaming fails
+            return await StreamingHandler._fallback_non_streaming(
+                model_id, messages, api_key, api_base
+            )
+    
+    @staticmethod
+    async def _fallback_non_streaming(model_id: str, messages: List[Dict],
+                                      api_key: str, api_base: str) -> Tuple[str, Dict]:
+        """Fallback: regular non-streaming API call."""
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        payload = {
+            "model": model_id,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": Config.MAX_TOKENS_PER_CALL,
+            "stream": False
+        }
+        
+        start_time = time.time()
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{api_base}/chat/completions",
+                                   headers=headers, json=payload) as resp:
+                result = await resp.json()
+        
+        content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+        latency = time.time() - start_time
+        
+        return content, {'latency': latency, 'output_chars': len(content), 'streaming': False}
+
+# ============================================================================
+# 📊 USAGE TRACKER — v7 Feature #4
+# ============================================================================
+
+@dataclass
+class UsageStats:
+    """Track per-user and global usage."""
+    total_requests: int = 0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_latency: float = 0.0
+    models_used: Dict[str, int] = field(default_factory=dict)
+    task_types: Dict[str, int] = field(default_factory=dict)
+    first_seen: str = field(default_factory=lambda: datetime.now().isoformat())
+    last_active: str = field(default_factory=lambda: datetime.now().isoformat())
+    
+    def record(self, input_tokens: int, output_tokens: int, 
+               latency: float, model_id: str, task_type: TaskType):
+        self.total_requests += 1
+        self.total_input_tokens += input_tokens
+        self.total_output_tokens += output_tokens
+        self.total_latency += latency
+        self.models_used[model_id] = self.models_used.get(model_id, 0) + 1
+        self.task_types[task_type.value] = self.task_types.get(task_type.value, 0) + 1
+        self.last_active = datetime.now().isoformat()
+    
+    @property
+    def avg_latency(self) -> float:
+        return self.total_latency / self.total_requests if self.total_requests > 0 else 0
+    
+    @property
+    def total_tokens(self) -> int:
+        return self.total_input_tokens + self.total_output_tokens
+
+# ============================================================================
+# 🧩 ENHANCED DATA MODELS
+# ============================================================================
+
+@dataclass
+class AgentTask:
+    """Enhanced agent task with checkpoints and rollback."""
+    task_id: str
+    user_id: int
+    description: str
+    status: str = "pending"  # pending/running/checkpoint/completed/failed/rolled_back
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    checkpoints: List[Dict] = field(default_factory=list)  # Save points for rollback
+    result: Optional[str] = None
+    error: Optional[str] = None
+    files_created: List[str] = field(default_factory=list)
+    local_path: Optional[str] = None
+    repo_url: Optional[str] = None
+    metrics: Dict[str, Any] = field(default_factory=dict)
+    model_used: Optional[str] = None
+    auto_retry_count: int = 0
+    
+    def add_checkpoint(self, step: str, data: Dict):
+        """Save progress checkpoint."""
+        self.checkpoints.append({
+            "step": step,
+            "timestamp": datetime.now().isoformat(),
+            "data": data
+        })
+        # Keep only last 5 checkpoints
+        if len(self.checkpoints) > 5:
+            self.checkpoints = self.checkpoints[-5:]
+    
+    def can_rollback(self) -> bool:
+        return len(self.checkpoints) >= 1
+    
+    def get_last_checkpoint(self) -> Optional[Dict]:
+        return self.checkpoints[-1] if self.checkpoints else None
+
+@dataclass  
+class ConversationState:
+    """User state with enhanced features."""
+    history: List[Dict[str, str]] = field(default_factory=list)
+    mode: str = "chat"  # chat/agent/embed/tts
+    current_model: str = Config.DEFAULT_CHAT_MODEL
+    auto_model: bool = True  # v7: enable smart routing
+    usage: UsageStats = field(default_factory=UsageStats)
+    agent_tasks: List[AgentTask] = field(default_factory=list)
+    
+    # User preferences
+    preferred_style: str = "balanced"  # concise/balanced/verbose
+    language_hint: str = "auto"  # auto/vi/en
+    budget_conscious: bool = True  # Prefer cheaper models
+    
+    # Memory & learning
+    self_notes: List[str] = field(default_factory=list)
+    error_patterns: Dict[str, int] = field(default_factory=dict)
+    successful_patterns: Dict[str, int] = field(default_factory=dict)
+    
+    # Branching conversations (v7 feature)
+    branches: Dict[str, List[Dict]] = field(default_factory=dict)  # name -> history
+    active_branch: Optional[str] = None
+    
+    def add_note(self, note: str, success: bool = True):
+        """Record learning with deduplication."""
+        target = self.successful_patterns if success else self.error_patterns
+        sig = note[:150].strip()
+        target[sig] = target.get(sig, 0) + 1
+        
+        if success and sig not in self.self_notes:
+            self.self_notes.append(f"✅ {sig}")
+            if len(self.self_notes) > Config.MAX_SELF_NOTES:
+                self.self_notes = self.self_notes[-Config.MAX_SELF_NOTES:]
+    
+    def get_adaptive_prompt(self, base: str) -> str:
+        """Build system prompt adapted to user preferences."""
+        prompt = base
+        
+        # Style adaptation
+        if self.preferred_style == "concise":
+            prompt += "\n\nSTYLE: Be extremely concise. Code only, minimal explanations."
+        elif self.preferred_style == "verbose":
+            prompt += "\n\nSTYLE: Provide detailed explanations with examples and comments."
+        
+        # Language adaptation
+        if self.language_hint == "vi":
+            prompt += "\n\nLANGUAGE: Respond in Vietnamese when appropriate, but keep code in English."
+        
+        # Add learned patterns
+        if self.successful_patterns:
+            top_success = sorted(self.successful_patterns.items(), key=lambda x: -x[1])[:3]
+            if top_success:
+                prompt += "\n\nPREFERRED PATTERNS:\n" + "\n".join(f"- {p}" for p, _ in top_success)
+        
+        return prompt
+
+# ============================================================================
+# 🗄️ IN-MEMORY STATE STORE (Single-file persistence)
+# ============================================================================
+
+class StateStore:
+    """Simple JSON-based state persistence in single file."""
+    
+    def __init__(self, file_path: Path):
+        self.file_path = file_path
+        self._cache: Dict[int, ConversationState] = {}
+        self._lock = asyncio.Lock()
+        self._load()
+    
+    def _load(self):
+        """Load states from JSON file."""
+        if self.file_path.exists():
+            try:
+                with open(self.file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                for uid_str, state_data in data.items():
+                    uid = int(uid_str)
+                    # Reconstruct UsageStats
+                    if 'usage' in state_data and isinstance(state_data['usage'], dict):
+                        state_data['usage'] = UsageStats(**state_data['usage'])
+                    self._cache[uid] = ConversationState(**state_data)
+                logging.info(f"📥 Loaded {len(self._cache)} user states")
+            except Exception as e:
+                logging.warning(f"⚠️ Failed to load states: {e}")
+    
+    async def _save(self):
+        """Save states to JSON file."""
+        async with self._lock:
+            try:
+                data = {}
+                for uid, state in self._cache.items():
+                    # Convert UsageStats to dict for JSON
+                    state_dict = asdict(state)
+                    state_dict['usage'] = asdict(state.usage)
+                    data[str(uid)] = state_dict
+                
+                # Atomic write
+                temp_file = self.file_path.with_suffix('.tmp')
+                with open(temp_file, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                temp_file.replace(self.file_path)
+            except Exception as e:
+                logging.error(f"❌ Failed to save states: {e}")
+    
+    def get(self, user_id: int) -> ConversationState:
+        """Get or create user state."""
+        if user_id not in self._cache:
+            self._cache[user_id] = ConversationState()
+            logging.info(f"🆕 New state for user {user_id}")
+        return self._cache[user_id]
+    
+    async def save(self, user_id: int):
+        """Save specific user state."""
+        if user_id in self._cache:
+            await self._save()
+    
+    async def save_all(self):
+        """Save all states."""
+        await self._save()
+    
+    def cleanup_old_tasks(self, hours: int = 48):
+        """Remove old agent tasks to save memory."""
+        cutoff = datetime.now() - timedelta(hours=hours)
+        for state in self._cache.values():
+            original = len(state.agent_tasks)
+            state.agent_tasks = [
+                t for t in state.agent_tasks 
+                if datetime.fromisoformat(t.created_at) > cutoff
+            ]
+            if len(state.agent_tasks) < original:
+                logging.debug(f"🗑️ Cleaned {original - len(state.agent_tasks)} old tasks")
+
+# Global state store
+state_store = StateStore(Config.WORK_DIR / "states.json")
+
+def get_user_state(user_id: int) -> ConversationState:
+    return state_store.get(user_id)
+
+# ============================================================================
+# 🛡️ RATE LIMITER (In-memory, single-file friendly)
+# ============================================================================
+
+class SimpleRateLimiter:
+    """Token bucket rate limiter for single-file deployment."""
+    
+    def __init__(self, rate: int, window: float = 60.0):
+        self.rate = rate
+        self.window = window
+        self.buckets: Dict[Any, List[float]] = {}
+    
+    def allow(self, key: Any) -> Tuple[bool, float]:
+        """Check if request allowed. Returns (allowed, wait_seconds)."""
+        now = time.time()
+        
+        if key not in self.buckets:
+            self.buckets[key] = []
+        
+        # Remove expired
+        self.buckets[key] = [t for t in self.buckets[key] if now - t < self.window]
+        
+        if len(self.buckets[key]) >= self.rate:
+            oldest = min(self.buckets[key])
+            wait = self.window - (now - oldest)
+            return False, max(0, wait)
+        
+        self.buckets[key].append(now)
+        return True, 0
+
+user_limiter = SimpleRateLimiter(Config.USER_REQUESTS_PER_MIN)
+global_limiter = SimpleRateLimiter(Config.GLOBAL_REQUESTS_PER_MIN)
+
+def rate_limit_check(update: Update) -> Tuple[bool, Optional[str]]:
+    """Check rate limits. Returns (allowed, error_message)."""
+    user_id = update.effective_user.id
+    
+    # Global check
+    allowed, wait = global_limiter.allow("global")
+    if not allowed:
+        return False, f"🌍 Server busy. Try in `{wait:.0f}s`."
+    
+    # User check
+    allowed, wait = user_limiter.allow(user_id)
+    if not allowed:
+        return False, f"⏱ You're sending too fast. Wait `{wait:.0f}s`."
+    
+    return True, None
+
+# ============================================================================
+# 📁 ENHANCED FILE PARSER (Multi-strategy, robust)
+# ============================================================================
+
+class RobustFileParser:
+    """Parse AI output into files with 5 fallback strategies."""
+    
+    STRATEGIES = [
+        # Strategy 1: Primary markers
+        (re.compile(r'<<<FILE:\s*([^>\s]+)\s*>>>(.*?)<<<ENDFILE>>>', re.DOTALL | re.I),
+         lambda m: (m.group(1).strip(), m.group(2).strip())),
+        
+        # Strategy 2: Code blocks with filename comment
+        (re.compile(r'```(?:\w+)?\s*\n?\s*#\s*filename:\s*([^\n]+)\s*\n(.*?)```', re.DOTALL | re.I),
+         lambda m: (m.group(1).strip(), m.group(2).strip())),
+        
+        # Strategy 3: Code blocks with filename in first line
+        (re.compile(r'```(?:\w+)?\s+([^\n`]+?\.\w+)\s*\n(.*?)```', re.DOTALL | re.I),
+         lambda m: (m.group(1).strip(), m.group(2).strip())),
+        
+        # Strategy 4: Comment header pattern
+        (re.compile(r'^#\s*File:\s*([^\n]+)\s*\n(.*?)(?=\n^#\s*File:|\Z)', re.DOTALL | re.M | re.I),
+         lambda m: (m.group(1).strip(), m.group(2).strip())),
+        
+        # Strategy 5: Simple code block (fallback to main.py)
+        (re.compile(r'```(?:python|py)?\s*\n(.*?)```', re.DOTALL | re.I),
+         lambda m: ("main.py", m.group(1).strip())),
+    ]
+    
+    @classmethod
+    def parse(cls, text: str) -> Dict[str, str]:
+        """Parse text into {filename: content} dict."""
+        files = {}
+        
+        for pattern, extractor in cls.STRATEGIES:
+            if files:  # Stop if we found files with earlier strategy
+                break
+            for match in pattern.finditer(text):
+                try:
+                    filename, content = extractor(match)
+                    if cls._is_valid(filename) and content:
+                        safe_name = cls._sanitize(filename)
+                        files[safe_name] = content
+                except Exception:
+                    continue
+        
+        # Last resort: if text looks like single file code
+        if not files and cls._looks_like_code(text):
+            ext = cls._detect_lang(text)
+            files[f"main.{ext}"] = text.strip()
+        
+        return files
+    
+    @staticmethod
+    def _is_valid(filename: str) -> bool:
+        if not filename or len(filename) > 255:
+            return False
+        dangerous = ['../', '..\\', '/etc/', '/proc/', 'null', 'undefined', '<', '>', '|']
+        return not any(d in filename.lower() for d in dangerous)
+    
+    @staticmethod
+    def _sanitize(filename: str) -> str:
+        name = re.sub(r'[<>:"/\\|?*]', '_', filename)
+        name = name.strip('. ')
+        if len(name) > 200:
+            base, ext = os.path.splitext(name)
+            name = base[:195] + ext
+        return name or f"file_{hashlib.md5(filename.encode()).hexdigest()[:8]}.txt"
+    
+    @staticmethod
+    def _looks_like_code(text: str) -> bool:
+        indicators = [r'\b(import|from|class|def|function|const|let)\b', r'\{\s*\}', r'->\s*\w+']
+        return any(re.search(p, text, re.I) for p in indicators)
+    
+    @staticmethod
+    def _detect_lang(text: str) -> str:
+        if re.search(r'\bimport\s+\w+|from\s+\w+\s+import', text): return 'py'
+        if re.search(r'\bfunction\s+\w+|const\s+\w+\s*=', text): return 'js'
+        if re.search(r'\binterface\s+\w+|:\s*(string|number)\b', text): return 'ts'
+        return 'txt'
+
+# ============================================================================
+# 🔍 SMART SYNTAX CHECKER
+# ============================================================================
+
+class SmartSyntaxChecker:
+    """Multi-language syntax validation with auto-fix hints."""
+    
+    @classmethod
+    def check(cls, code: str, filename: str) -> List[Dict]:
+        """Return list of {level, message, suggestion}."""
+        ext = Path(filename).suffix.lower()
+        issues = []
+        
+        if ext == '.py':
+            issues.extend(cls._check_python(code, filename))
+        elif ext in ['.js', '.ts']:
+            issues.extend(cls._check_js(code, filename))
+        elif ext == '.json':
+            issues.extend(cls._check_json(code, filename))
+        
+        return issues
+    
+    @staticmethod
+    def _check_python(code: str, filename: str) -> List[Dict]:
+        issues = []
+        
+        # Syntax check
+        try:
+            compile(code, filename, 'exec')
+        except SyntaxError as e:
+            return [{"level": "error", "message": f"Syntax error line {e.lineno}: {e.msg}", 
+                    "suggestion": "Check indentation, colons, parentheses"}]
+        
+        # Warnings
+        if re.search(r'\bexcept\s*:', code) and not re.search(r'\bexcept\s+\w+', code):
+            issues.append({"level": "warn", "message": "Bare `except:`", 
+                          "suggestion": "Use `except Exception:` for clarity"})
+        
+        if 'print(' in code and 'logging' not in code and len(code) > 300:
+            issues.append({"level": "info", "message": "Using print() statements", 
+                          "suggestion": "Consider `logging` module for production"})
+        
+        if 'TODO' in code.upper() or 'FIXME' in code.upper():
+            issues.append({"level": "info", "message": "TODO/FIXME markers found"})
+        
+        return issues
+    
+    @staticmethod
+    def _check_js(code: str, filename: str) -> List[Dict]:
+        issues = []
+        if code.count('{') != code.count('}'):
+            issues.append({"level": "error", "message": "Mismatched braces", "suggestion": "Check opening/closing brackets"})
+        if 'console.log' in code and 'debug' not in filename.lower():
+            issues.append({"level": "info", "message": "console.log found", "suggestion": "Remove in production code"})
+        return issues
+    
+    @staticmethod
+    def _check_json(code: str, filename: str) -> List[Dict]:
+        try:
+            json.loads(code)
+            return []
+        except json.JSONDecodeError as e:
+            return [{"level": "error", "message": f"JSON error: {e.msg}", 
+                    "suggestion": "Check commas, quotes, trailing commas"}]
+
+# ============================================================================
+# 📦 LOCAL ZIP AGENT (Enhanced with metadata)
+# ============================================================================
+
+class LocalAgent:
+    """Create ZIP packages with rich metadata."""
+    
+    @classmethod
+    async def create_package(cls, task_id: str, files: Dict[str, str], 
+                            metadata: Dict) -> Tuple[Path, int]:
+        """Create ZIP with files + metadata + README."""
+        task_dir = Config.WORK_DIR / task_id
+        task_dir.mkdir(parents=True, exist_ok=True)
+        
+        total_size = 0
+        
+        # Write files
+        for filename, content in files.items():
+            file_path = task_dir / filename
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(content, encoding='utf-8')
+            total_size += file_path.stat().st_size
+        
+        # Add metadata
+        meta = {
+            **metadata,
+            "created_at": datetime.now().isoformat(),
+            "fizzpop_version": "7.0",
+            "files_count": len(files)
+        }
+        (task_dir / ".fizzpop.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding='utf-8')
+        
+        # Auto-generate README if not present
+        if "README.md" not in files:
+            readme = cls._generate_readme(metadata, files)
+            (task_dir / "README.md").write_text(readme, encoding='utf-8')
+            total_size += len(readme.encode('utf-8'))
+        
+        # Create ZIP
+        zip_path = Config.WORK_DIR / f"{task_id}.zip"
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+            for fp in task_dir.rglob('*'):
+                if fp.is_file():
+                    zf.write(fp, fp.relative_to(task_dir))
+        
+        zip_size = zip_path.stat().st_size
+        logging.info(f"📦 Created: {zip_path.name} ({zip_size/1024:.1f}KB, {len(files)} files)")
+        
+        return zip_path, zip_size
+    
+    @staticmethod
+    def _generate_readme(meta: Dict, files: Dict[str, str]) -> str:
+        """Auto-generate helpful README."""
+        desc = meta.get('description', 'Auto-generated project')[:200]
+        files_list = "\n".join(f"- `{f}` ({len(c)} chars)" for f, c in list(files.items())[:10])
+        
+        # Detect project type for setup hints
+        setup_hint = ""
+        if "requirements.txt" in files:
+            setup_hint = "```bash\npip install -r requirements.txt\npython main.py\n```"
+        elif "package.json" in files:
+            setup_hint = "```bash\nnpm install\nnpm start\n```"
+        elif any(f.endswith('.py') for f in files):
+            setup_hint = "```bash\npython main.py\n```"
+        
+        return f"""# 🤖 {meta.get('task_id', 'Project')}
+
+{desc}
+
+## 📁 Files
+{files_list}
+{"...and more" if len(files) > 10 else ""}
+
+## 🚀 Quick Start
+{setup_hint}
+
+## ℹ️ Generated by
+FizzPop AI Agent v7.0 | {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+> 💡 Tip: Check `.fizzpop.json` for full metadata
 """
 
-AGENT_SYSTEM_PROMPT = """You are FizzPop AI Agent in AUTONOMOUS CODING MODE.
+# ============================================================================
+# 🌐 GITHUB CLIENT (Lightweight, single-file)
+# ============================================================================
 
-YOUR MISSION: Complete coding tasks end-to-end with ZERO human intervention.
+class LiteGitHub:
+    """Minimal GitHub API client for single-file deployment."""
+    
+    BASE = "https://api.github.com"
+    
+    def __init__(self, token: str):
+        self.token = token
+        self.headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "FizzPop-Bot/7.0"
+        }
+        self._session: Optional[aiohttp.ClientSession] = None
+    
+    async def _session_get(self) -> aiohttp.ClientSession:
+        if not self._session:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=Config.API_TIMEOUT),
+                headers={"User-Agent": self.headers["User-Agent"]}
+            )
+        return self._session
+    
+    async def _request(self, method: str, endpoint: str, **kwargs) -> Tuple[int, Any]:
+        session = await self._session_get()
+        url = f"{self.BASE}{endpoint}"
+        headers = {**self.headers, **kwargs.pop('headers', {})}
+        
+        async with session.request(method, url, headers=headers, **kwargs) as resp:
+            try:
+                data = await resp.json()
+            except:
+                data = await resp.text()
+            return resp.status, data
+    
+    async def get_user(self) -> Tuple[bool, str]:
+        """Get GitHub username."""
+        status, data = await self._request("GET", "/user")
+        if status == 200 and isinstance(data, dict):
+            return True, data.get("login", "")
+        return False, ""
+    
+    async def create_repo(self, name: str, desc: str = "", private: bool = False) -> Tuple[bool, str]:
+        """Create repo, return (success, url)."""
+        payload = {"name": name, "description": desc[:300], "private": private, "auto_init": True}
+        status, data = await self._request("POST", "/user/repos", json=payload)
+        if status == 201 and isinstance(data, dict):
+            return True, data.get("html_url", "")
+        return False, str(data) if isinstance(data, dict) else data
+    
+    async def push_files(self, owner: str, repo: str, files: Dict[str, str], 
+                        message: str, branch: str = "main") -> Tuple[bool, str]:
+        """Push multiple files in sequence."""
+        for path, content in files.items():
+            encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+            # Check if file exists
+            status, data = await self._request("GET", f"/repos/{owner}/{repo}/contents/{path}?ref={branch}")
+            
+            payload = {
+                "message": message[:200],
+                "content": encoded,
+                "branch": branch
+            }
+            if status == 200 and isinstance(data, dict) and "sha" in data:
+                payload["sha"] = data["sha"]  # Update existing
+                method = "PUT"
+            else:
+                method = "PUT"  # Create new
+            
+            status, _ = await self._request(method, f"/repos/{owner}/{repo}/contents/{path}", json=payload)
+            if status not in (200, 201):
+                return False, f"Failed to push {path}"
+            await asyncio.sleep(0.3)  # Rate limit friendly
+        
+        return True, f"https://github.com/{owner}/{repo}"
+    
+    async def close(self):
+        if self._session:
+            await self._session.close()
 
-CRITICAL RULES:
-1. You MUST write COMPLETE, RUNNABLE code — never placeholders or pseudocode
-2. You MUST create ALL necessary files for the project to work immediately
-3. Every file must have proper docstrings, type hints, and error handling
-4. Include requirements.txt (Python) or package.json (Node) or equivalent
-5. Include README.md with setup and run instructions
-6. Include .env.example if environment variables are needed
-7. Write tests if applicable (test_*.py, *_test.py, or tests/ folder)
+github = LiteGitHub(Config.GITHUB_TOKEN)
 
-OUTPUT FORMAT — STRICT:
-You MUST wrap each file in markers:
-<<<FILE:filename>>>
-[file content here]
+# ============================================================================
+# 🤖 AI CLIENT (With smart retry & fallback)
+# ============================================================================
+
+class SmartAIClient:
+    """AI client with auto-retry, model fallback, and streaming."""
+    
+    def __init__(self, base: str, key: str):
+        self.base = base
+        self.key = key
+        self._session: Optional[aiohttp.ClientSession] = None
+    
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if not self._session:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=Config.API_TIMEOUT)
+            )
+        return self._session
+    
+    async def chat(self, model: str, messages: List[Dict], 
+                   stream: bool = Config.STREAMING_RESPONSES,
+                   status_callback: Optional[Callable] = None) -> Tuple[str, Dict]:
+        """Smart chat with retry/fallback."""
+        session = await self._get_session()
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.key}"}
+        
+        # Add system prompt if missing
+        if not any(m.get('role') == 'system' for m in messages):
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+        
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": Config.MAX_TOKENS_PER_CALL,
+            "stream": stream
+        }
+        
+        # Try primary model, fallback on error
+        for attempt, try_model in enumerate([model] + self._get_fallbacks(model)):
+            if attempt > 0:
+                logging.warning(f"🔄 Retrying with fallback model: {try_model}")
+            
+            try:
+                if stream and Config.STREAMING_RESPONSES:
+                    return await self._stream_chat(session, try_model, payload, headers, status_callback)
+                else:
+                    return await self._regular_chat(session, try_model, payload, headers)
+                    
+            except Exception as e:
+                if attempt == 2:  # After 3 tries (1 primary + 2 fallbacks)
+                    raise
+                logging.warning(f"⚠️ Attempt {attempt+1} failed: {e}")
+                await asyncio.sleep(1 * attempt)  # Exponential backoff
+        
+        raise Exception("All model attempts failed")
+    
+    async def _regular_chat(self, session: aiohttp.ClientSession, model: str, 
+                           payload: Dict, headers: Dict) -> Tuple[str, Dict]:
+        """Non-streaming API call."""
+        payload["stream"] = False
+        start = time.time()
+        
+        async with session.post(f"{self.base}/chat/completions", headers=headers, json=payload) as resp:
+            if resp.status != 200:
+                raise Exception(f"API {resp.status}: {await resp.text()[:200]}")
+            result = await resp.json()
+        
+        content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+        usage = result.get('usage', {})
+        
+        return content, {
+            'latency': time.time() - start,
+            'input_tokens': usage.get('prompt_tokens', 0),
+            'output_tokens': usage.get('completion_tokens', 0),
+            'model_used': model
+        }
+    
+    async def _stream_chat(self, session: aiohttp.ClientSession, model: str,
+                          payload: Dict, headers: Dict,
+                          callback: Optional[Callable]) -> Tuple[str, Dict]:
+        """Streaming API call with real-time updates."""
+        payload["stream"] = True
+        start = time.time()
+        accumulated = []
+        
+        async with session.post(f"{self.base}/chat/completions", headers=headers, json=payload) as resp:
+            if resp.status != 200:
+                raise Exception(f"API {resp.status}: {await resp.text()[:200]}")
+            
+            async for line in resp.content:
+                line = line.decode('utf-8').strip()
+                if not line or line == 'data: [DONE]':
+                    continue
+                if line.startswith('data: '):
+                    try:
+                        chunk = json.loads(line[6:])
+                        content = chunk.get('choices', [{}])[0].get('delta', {}).get('content', '')
+                        if content:
+                            accumulated.append(content)
+                            # Update callback every ~150 chars
+                            if callback and len(''.join(accumulated)) % 150 < len(content):
+                                await callback(''.join(accumulated)[-400:])
+                    except:
+                        continue
+        
+        return ''.join(accumulated), {
+            'latency': time.time() - start,
+            'output_chars': len(accumulated),
+            'model_used': model,
+            'streaming': True
+        }
+    
+    def _get_fallbacks(self, primary: str) -> List[str]:
+        """Get fallback models in order of preference."""
+        # Simple fallback strategy: similar capability, cheaper first
+        fallbacks = []
+        primary_profile = MODEL_PROFILES.get(primary)
+        if not primary_profile:
+            return list(MODEL_PROFILES.keys())[:2]
+        
+        # Same category, lower cost tier
+        for mid, profile in MODEL_PROFILES.items():
+            if mid == primary:
+                continue
+            if profile.category == primary_profile.category and profile.cost_tier < primary_profile.cost_tier:
+                fallbacks.append(mid)
+        
+        # Any model with same strengths
+        for mid, profile in MODEL_PROFILES.items():
+            if mid in fallbacks or mid == primary:
+                continue
+            if primary_profile.strengths & profile.strengths:
+                fallbacks.append(mid)
+        
+        return fallbacks[:2]  # Max 2 fallbacks
+    
+    async def close(self):
+        if self._session:
+            await self._session.close()
+
+ai_client = SmartAIClient(Config.API_BASE, Config.API_KEY)
+
+# ============================================================================
+# 📋 SYSTEM PROMPTS (Enhanced for v7)
+# ============================================================================
+
+SYSTEM_PROMPT = """You are FizzPop AI Agent v7.0 — an advanced autonomous coding assistant.
+
+CORE PRINCIPLES:
+1. Write COMPLETE, RUNNABLE code — no placeholders, no pseudocode
+2. Include ALL necessary files: main, dependencies, config, README
+3. Follow best practices: docstrings, error handling, type hints, logging
+4. Adapt to user preferences: concise/verbose, language, style
+5. Learn from interactions: remember what works, avoid past mistakes
+
+OUTPUT FORMAT FOR CODE TASKS:
+Use file markers for each file:
+<<<FILE:filename.py>>>
+[complete file content]
 <<<ENDFILE>>>
 
 Example:
 <<<FILE:main.py>>>
 import asyncio
 async def main():
-    print("Hello World")
+    print("Hello from FizzPop!")
 if __name__ == "__main__":
     asyncio.run(main())
 <<<ENDFILE>>>
 
 <<<FILE:requirements.txt>>>
-asyncio
-aiohttp
+asyncio>=3.4.3
 <<<ENDFILE>>>
 
-REPO NAMING RULE:
-- Derive repo name from task description
-- Use kebab-case: lowercase, hyphens between words
-- Max 30 chars, no special chars
-- Examples: "fastapi-user-auth" from "FastAPI user authentication"
+RESPONSE STYLE:
+- If user prefers concise: code only, minimal text
+- If user prefers verbose: explanations + comments + examples
+- Default: balanced — code with brief context
 
-CODE QUALITY:
-- Follow PEP 8 for Python
-- Handle all edge cases
-- Never hardcode secrets
-- Use logging, not print
-- Add __doc__ strings to modules
+SELF-IMPROVEMENT:
+After each task, note: what worked well, what could be better.
+Use these notes to improve future responses.
 """
 
-DEFAULT_MODE = "chat"
-DEFAULT_CHAT_MODEL = "deepseek-3.2"
-DEFAULT_AGENT_MODEL = "mistral-medium-3.5-128b"
-DEFAULT_EMBED_MODEL = "text-embedding-3-small"
-DEFAULT_TTS_MODEL = "google-tts/vi"
+AGENT_PROMPT = """You are FizzPop Agent in AUTONOMOUS MODE.
 
-MAX_HISTORY = 32
-MAX_OUTPUT_TOKENS = 8192
-STATUS_UPDATE_INTERVAL = 2.0
-TELEGRAM_MSG_LIMIT = 4000
-TELEGRAM_FILE_LIMIT = 20 * 1024 * 1024  # 20MB
+MISSION: Complete the task end-to-end with ZERO follow-up questions.
 
-# ============================ MODEL CATALOG ============================
+RULES:
+1. Analyze requirements thoroughly before coding
+2. Plan file structure and dependencies first
+3. Write production-ready code: error handling, logging, config management
+4. Include: main file, dependencies, README, .env.example (if needed)
+5. Test logic mentally before outputting
+6. If uncertain, make reasonable assumption and proceed
+
+STRICT OUTPUT:
+Each file MUST be wrapped:
+<<<FILE:filename>>>
+[content]
+<<<ENDFILE>>>
+
+REQUIRED FILES:
+• Entry point (main.py, index.js, etc.)
+• Dependencies (requirements.txt, package.json)
+• README.md with setup/run instructions
+• .env.example if using environment variables
+
+QUALITY CHECKLIST:
+☑ No hardcoded secrets — use env vars
+☑ Proper error handling (try/except, error messages)
+☑ Logging instead of print() for production
+☑ Docstrings for functions/classes
+☑ Type hints where helpful
+
+THINKING PROCESS:
+1. Understand task → 2. Plan architecture → 3. Write file-by-file 
+→ 4. Review completeness → 5. Output with markers
+
+If task is ambiguous, choose the most common interpretation and proceed.
+"""
+
+# ============================================================================
+# 🎨 TELEGRAM UI HELPERS
+# ============================================================================
+
+def build_model_keyboard(mode: str, current: str, page: int = 0) -> InlineKeyboardMarkup:
+    """Build inline keyboard for model selection."""
+    models = MODE_CONFIG.get(mode, {}).get("models", [])
+    per_page = 6  # Show 6 models per page
+    total_pages = (len(models) + per_page - 1) // per_page
+    
+    start_idx = page * per_page
+    page_models = models[start_idx:start_idx + per_page]
+    
+    keyboard = []
+    for cat, model_id, display in page_models:
+        prefix = "✅ " if model_id == current else CATEGORY_EMOJI.get(cat, "⚪ ")
+        btn = InlineKeyboardButton(f"{prefix}{display[:20]}", callback_data=f"model_{mode}_{model_id}")
+        keyboard.append([btn])
+    
+    # Navigation
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️", callback_data=f"models_{mode}_{page-1}"))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("➡️", callback_data=f"models_{mode}_{page+1}"))
+    if nav_row:
+        keyboard.append(nav_row)
+    
+    keyboard.append([InlineKeyboardButton("🔄 Auto-select", callback_data=f"auto_{mode}")])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+def build_quick_actions() -> InlineKeyboardMarkup:
+    """Build quick action buttons for common tasks."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🤖 Agent Mode", callback_data="quick_agent"),
+            InlineKeyboardButton("📊 Stats", callback_data="quick_stats"),
+        ],
+        [
+            InlineKeyboardButton("🔧 Fix Code", callback_data="quick_fix"),
+            InlineKeyboardButton("📝 Explain", callback_data="quick_explain"),
+        ],
+        [
+            InlineKeyboardButton("🗑️ Reset Chat", callback_data="quick_reset"),
+        ],
+    ])
+
+async def send_with_fallback(update: Update, text: str, 
+                            parse_mode: str = TPM.MARKDOWN, **kwargs):
+    """Send message with automatic fallback for long content."""
+    if len(text) <= MessageLimit.MAX_TEXT_LENGTH:
+        try:
+            return await update.message.reply_text(text, parse_mode=parse_mode, **kwargs)
+        except BadRequest as e:
+            if "message is too long" not in str(e).lower():
+                raise
+    
+    # Fallback: send as document
+    bio = io.BytesIO(text.encode('utf-8'))
+    bio.name = "response.txt"
+    return await update.message.reply_document(
+        document=bio, 
+        caption="📄 Content too long for chat — sent as file",
+        **kwargs
+    )
+
+# ============================================================================
+# 🎯 COMMAND HANDLERS (Enhanced for v7)
+# ============================================================================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Welcome command with smart UI."""
+    user_id = update.effective_user.id
+    state = get_user_state(user_id)
+    
+    # Check rate limit
+    allowed, msg = rate_limit_check(update)
+    if not allowed:
+        await update.message.reply_text(msg, parse_mode=TPM.MARKDOWN)
+        return
+    
+    # Detect user language preference
+    if not state.language_hint or state.language_hint == "auto":
+        first_msg = update.message.text or ""
+        if re.search(r'[\u0400-\u04FF\u4e00-\u9fff]', first_msg):  # Cyrillic or CJK
+            state.language_hint = "en"  # Default to English for non-Latin
+        elif any(viet in first_msg.lower() for viet in ['xin chào', 'cảm ơn', 'tôi']):
+            state.language_hint = "vi"
+    
+    model_display = _get_model_display(state.mode, state.current_model)
+    
+    welcome = f"""╔══════════════════════════╗
+║   🤖 *FizzPop v7.0*      ║
+║   *Single-File Power*    ║
+╚══════════════════════════╝
+
+👋 Chào *{update.effective_user.first_name or 'bạn'}*!
+
+🧠 *AI thông minh hơn — Tự chọn model, tự nén context, tự học*
+
+📦 *Chế độ:*
+• 💬 Chat — Hỏi đáp thông thường
+• 🤖 Agent — Tự động code + deploy  
+• 📊 Embed — Text → Vector
+• 🔊 TTS — Text → Voice
+
+🚀 *Hiện tại:* {MODE_CONFIG[state.mode]['name']} | {model_display}
+🎯 *Auto model:* {'✅ Bật' if state.auto_model else '❌ Tắt'}
+
+📚 *Lệnh nhanh:*
+• /models — Chọn model (có nút)
+• /switch <tên> — Đổi model nhanh
+• /agent <task> — Chạy agent tự động
+• /style concise|verbose — Đổi phong cách
+• /stats — Xem thống kê
+• /reset — Xóa lịch sử
+• /help — Hướng dẫn chi tiết
+
+💡 *Mẹo v7:* Gõ `/agent github Tạo API FastAPI` để auto-deploy!"""
+    
+    await send_with_fallback(update, welcome, reply_markup=build_quick_actions())
+    await state_store.save(user_id)
+
+async def show_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show models with inline keyboard."""
+    user_id = update.effective_user.id
+    state = get_user_state(user_id)
+    
+    keyboard = build_model_keyboard(state.mode, state.current_model)
+    
+    header = f"""📂 *Model Catalog — {MODE_CONFIG[state.mode]['name']}*
+━━━━━━━━━━━━━━━━━━━━━━
+✅ = Đang dùng | 🎯 = Auto-select bật
+📊 Tổng: {len(MODE_CONFIG[state.mode].get('models', []))} models
+
+👇 *Chọn model hoặc dùng nút Auto-select*"""
+    
+    await update.message.reply_text(header, parse_mode=TPM.MARKDOWN, reply_markup=keyboard)
+
+async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle model selection callbacks."""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    state = get_user_state(user_id)
+    data = query.data
+    
+    if data.startswith("model_"):
+        parts = data.split("_")
+        if len(parts) >= 3:
+            mode, model_id = parts[1], parts[2]
+            if mode in MODE_CONFIG and model_id in [m[1] for m in MODE_CONFIG[mode].get("models", [])]:
+                state.mode = mode
+                state.current_model = model_id
+                state.auto_model = False  # Disable auto when manually selected
+                
+                display = _get_model_display(mode, model_id)
+                await query.edit_message_text(
+                    f"✅ *Đã chọn model!*\n\n🤖 {display}\n🆔 `{model_id}`\n\n💡 Auto-select đã tắt. Dùng `/auto on` để bật lại.",
+                    parse_mode=TPM.MARKDOWN
+                )
+                await state_store.save(user_id)
+    
+    elif data.startswith("models_"):
+        # Pagination
+        parts = data.split("_")
+        if len(parts) >= 3:
+            mode, page = parts[1], int(parts[2])
+            keyboard = build_model_keyboard(mode, state.current_model, page)
+            await query.edit_message_reply_markup(reply_markup=keyboard)
+    
+    elif data.startswith("auto_"):
+        mode = data.split("_")[1]
+        state.mode = mode
+        state.auto_model = True
+        await query.edit_message_text(
+            f"🎯 *Auto-select BẬT*\n\nBot sẽ tự chọn model tối ưu cho mỗi task dựa trên:\n• Loại công việc\n• Độ phức tạp\n• Ngân sách token\n\n💡 Gõ `/auto off` để tắt.",
+            parse_mode=TPM.MARKDOWN
+        )
+        await state_store.save(user_id)
+    
+    elif data.startswith("quick_"):
+        action = data.split("_")[1]
+        await query.edit_message_text(f"⚡ Đang xử lý: {action}...")
+        
+        if action == "reset":
+            state.history = []
+            await query.edit_message_text("🗑️ *Đã xóa lịch sử chat!*")
+        elif action == "stats":
+            await _send_stats(update, state)
+        elif action == "agent":
+            await query.edit_message_text("🤖 *Agent Mode*\n\nGõ: `/agent <mô tả task>`\n\nVí dụ:\n• `/agent Tạo API user với JWT`\n• `/agent github Viết bot Telegram đơn giản`")
+        elif action == "fix":
+            await query.edit_message_text("🔧 *Code Fix Mode*\n\nReply vào code bị lỗi và gõ `/fix` hoặc mô tả lỗi:\n\n`/fix Lỗi syntax ở line 15`")
+        elif action == "explain":
+            await query.edit_message_text("📝 *Explain Mode*\n\nGửi code và hỏi:\n\n`Giải thích hàm này làm gì?`\n`Tại sao code này chạy chậm?`")
+        
+        await state_store.save(user_id)
+
+async def agent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Enhanced agent command with smart workflow."""
+    user_id = update.effective_user.id
+    state = get_user_state(user_id)
+    
+    if not context.args:
+        # Show help with deploy mode options
+        current_deploy = state.agent_deploy_mode if hasattr(state, 'agent_deploy_mode') else 'local'
+        await update.message.reply_text(
+            f"""🤖 *Agent Mode — Code tự động*
+━━━━━━━━━━━━━━━━━━━━━━
+*Cách dùng:* `/agent [github|local] <mô tả>`
+
+*Ví dụ:*
+• `/agent Tạo REST API FastAPI + SQLite`
+• `/agent github Viết bot Telegram với commands`
+• `/agent local Tạo script crawl web đơn giản`
+
+*Deploy mode:* `{current_deploy}`
+• `local` → Gửi file ZIP qua Telegram
+• `github` → Push lên GitHub repo
+
+💡 *Mẹo:* Thêm `github` để auto-deploy, hoặc `local` để nhận file.""",
+            parse_mode=TPM.MARKDOWN
+        )
+        return
+    
+    # Parse deploy mode
+    deploy_mode = getattr(state, 'agent_deploy_mode', 'local')
+    task_desc = " ".join(context.args)
+    
+    if context.args[0].lower() in ['github', 'local']:
+        deploy_mode = context.args[0].lower()
+        task_desc = " ".join(context.args[1:])
+    
+    if not task_desc.strip():
+        await update.message.reply_text("❌ *Thiếu mô tả task!*\nVí dụ: `/agent Tạo API user management`", parse_mode=TPM.MARKDOWN)
+        return
+    
+    # Create task with checkpointing
+    task_id = f"task_{int(time.time()*1000)}_{hashlib.md5(f'{user_id}{task_desc}'.encode()).hexdigest()[:6]}"
+    task = AgentTask(task_id=task_id, user_id=user_id, description=task_desc)
+    state.agent_tasks.append(task)
+    
+    # Initial status
+    status_msg = await update.message.reply_text(
+        f"🤖 *Agent Task Started*\n━━━━━━━━\n🆔 `{task_id}`\n📝 {task_desc[:100]}{'...' if len(task_desc)>100 else ''}\n📦 Deploy: `{deploy_mode.upper()}`\n\n⏳ *Bước 1/5:* Phân tích yêu cầu...",
+        parse_mode=TPM.MARKDOWN
+    )
+    
+    # Run async
+    asyncio.create_task(_run_agent_task(update, context, state, task, status_msg, deploy_mode))
+
+async def _run_agent_task(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                         state: ConversationState, task: AgentTask,
+                         status_msg: Message, deploy_mode: str):
+    """Execute agent task with checkpoints and auto-retry."""
+    try:
+        # ===== CHECKPOINT 1: Analyze =====
+        task.add_checkpoint("analyze", {"desc": task.description})
+        await _update_status(status_msg, task, 1, 5, "Phân tích yêu cầu...")
+        
+        # Smart model selection
+        model_id = state.current_model
+        if state.auto_model:
+            task_type = SmartModelRouter.detect_task_type(task.description, state.history)
+            model_id, model_display = SmartModelRouter.select_best_model(
+                task.description, state.history, state.budget_conscious
+            )
+            logging.info(f"🎯 Auto-selected: {model_id} for {task_type.value}")
+        
+        # Generate plan
+        plan_messages = [
+            {"role": "system", "content": state.get_adaptive_prompt(AGENT_PROMPT)},
+            {"role": "user", "content": f"Task: {task.description}\n\nCreate a brief implementation plan (bullet points)."}
+        ]
+        
+        plan, plan_metrics = await ai_client.chat(model_id, plan_messages)
+        task.model_used = model_id
+        task.metrics.update(plan_metrics)
+        
+        # ===== CHECKPOINT 2: Code Generation =====
+        task.add_checkpoint("plan", {"plan": plan[:500]})
+        await _update_status(status_msg, task, 2, 5, "Viết code...")
+        
+        code_messages = [
+            {"role": "system", "content": state.get_adaptive_prompt(AGENT_PROMPT)},
+            {"role": "user", "content": f"Task: {task.description}\n\nPlan:\n{plan}\n\nWrite COMPLETE code with file markers."}
+        ]
+        
+        code_text, code_metrics = await ai_client.chat(model_id, code_messages)
+        task.metrics['total_tokens'] = task.metrics.get('total_tokens', 0) + code_metrics.get('output_tokens', 0)
+        
+        # ===== CHECKPOINT 3: Parse & Validate =====
+        task.add_checkpoint("code", {"files_detected": True})
+        await _update_status(status_msg, task, 3, 5, "Parse & validate...")
+        
+        files = RobustFileParser.parse(code_text)
+        
+        if not files:
+            # Auto-retry with stronger prompt
+            task.auto_retry_count += 1
+            if task.auto_retry_count <= 2:
+                retry_msg = "Previous output not parsed. Rewrite with EXACT <<<FILE:>>> markers."
+                code_messages[-1]["content"] += f"\n\n{retry_msg}"
+                code_text, code_metrics = await ai_client.chat(model_id, code_messages)
+                files = RobustFileParser.parse(code_text)
+        
+        # Syntax check
+        issues = []
+        for fname, content in files.items():
+            issues.extend(SmartSyntaxChecker.check(content, fname))
+        
+        # Auto-fix if critical errors
+        critical = [i for i in issues if i['level'] == 'error']
+        if critical and task.auto_retry_count < 2:
+            task.add_checkpoint("syntax_check", {"errors": len(critical)})
+            await _update_status(status_msg, task, 3, 5, f"Tự sửa {len(critical)} lỗi...")
+            
+            fix_messages = [
+                {"role": "system", "content": AGENT_PROMPT},
+                {"role": "user", "content": f"Fix these errors:\n{critical}\n\nOutput only fixed code with file markers."}
+            ]
+            fixed, _ = await ai_client.chat(model_id, fix_messages)
+            files = RobustFileParser.parse(fixed)
+        
+        # ===== CHECKPOINT 4: Deploy =====
+        task.add_checkpoint("deploy", {"mode": deploy_mode, "files": list(files.keys())})
+        await _update_status(status_msg, task, 4, 5, "Deploying...")
+        
+        metadata = {
+            "task_id": task_id, "description": task.description,
+            "model": model_id, "files": list(files.keys())
+        }
+        
+        if deploy_mode == 'local' or deploy_mode == 'both':
+            zip_path, zip_size = await LocalAgent.create_package(task_id, files, metadata)
+            task.local_path = str(zip_path)
+            task.files_created = list(files.keys())
+        
+        if deploy_mode == 'github' or deploy_mode == 'both':
+            # GitHub deploy
+            success, username = await github.get_user()
+            if success:
+                repo_name = _smart_repo_name(task.description, user_id)
+                success, repo_url = await github.create_repo(repo_name, f"Auto: {task.description[:100]}")
+                if success or "already exists" in str(repo_url).lower():
+                    success_push, final_url = await github.push_files(
+                        username, repo_name, files,
+                        f"Add {len(files)} files: {task.description[:50]}"
+                    )
+                    if success_push:
+                        task.repo_url = final_url
+                        if not task.files_created:
+                            task.files_created = list(files.keys())
+        
+        # ===== CHECKPOINT 5: Complete =====
+        task.status = "completed"
+        task.result = "Success"
+        state.usage.record(
+            task.metrics.get('input_tokens', 0),
+            task.metrics.get('output_tokens', 0),
+            task.metrics.get('latency', 0),
+            model_id,
+            SmartModelRouter.detect_task_type(task.description, state.history)
+        )
+        state.add_note(f"Completed: {task.description[:50]}", success=True)
+        SmartModelRouter.record_result(model_id, success=True)
+        
+        # Build success message
+        file_summary = "\n".join(f"• `{f}`" for f in task.files_created[:8])
+        if len(task.files_created) > 8:
+            file_summary += f"\n• ...+{len(task.files_created)-8} more"
+        
+        result_msg = f"""✅ *Agent Task Completed!*
+━━━━━━━━━━━━━━━━━━━━━━
+🆔 `{task_id}`
+📝 {task.description[:80]}...
+📦 Deploy: `{deploy_mode.upper()}`
+
+📁 Files ({len(task.files_created)}):
+{file_summary}
+
+📊 Metrics:
+• ⏱ Latency: `{task.metrics.get('latency', 0):.1f}s`
+• 📝 Tokens: `{task.metrics.get('total_tokens', 0)}`
+• 🔄 Retries: `{task.auto_retry_count}`
+• 🤖 Model: `{model_id}`"""
+        
+        if task.repo_url:
+            result_msg += f"\n\n🔗 GitHub: {task.repo_url}"
+        if task.local_path:
+            result_msg += f"\n📦 ZIP: `{Path(task.local_path).stat().st_size/1024:.1f}KB`"
+        
+        await status_msg.edit_text(result_msg, parse_mode=TPM.MARKDOWN)
+        
+        # Send files
+        if task.local_path:
+            with open(task.local_path, 'rb') as f:
+                bio = io.BytesIO(f.read())
+            bio.name = f"{task_id}.zip"
+            await update.message.reply_document(document=bio, caption=f"📦 {len(files)} files")
+        
+        # Record usage
+        await state_store.save(user_id)
+        
+    except Exception as e:
+        task.status = "failed"
+        task.error = str(e)[:300]
+        state.add_note(f"Failed: {task.description[:50]} — {str(e)[:100]}", success=False)
+        SmartModelRouter.record_result(task.model_used or state.current_model, success=False)
+        
+        error_msg = f"""❌ *Agent Task Failed*
+━━━━━━━━━━━━━━━━━━━━━━
+🆔 `{task.task_id}`
+⚠️ Error: `{task.error}`
+
+💡 Try:
+• Simplify the task description
+• Use `/agent local` for ZIP output
+• Check GitHub token if using github mode
+
+🔁 Auto-retry: `{task.auto_retry_count}/2`"""
+        
+        await status_msg.edit_text(error_msg, parse_mode=TPM.MARKDOWN)
+        await state_store.save(user_id)
+
+async def _update_status(msg: Message, task: AgentTask, step: int, total: int, text: str):
+    """Update progress with rate-limit friendly edits."""
+    try:
+        await msg.edit_text(
+            f"🤖 *Agent — {step}/{total}*\n━━━━━━━━\n🆔 `{task.task_id}`\n⏳ {text}\n\n⏱ Started: {task.created_at[:16]}",
+            parse_mode=TPM.MARKDOWN
+        )
+    except BadRequest:
+        pass  # Message unchanged, continue
+
+def _smart_repo_name(desc: str, user_id: int) -> str:
+    """Generate GitHub repo name from description."""
+    words = re.findall(r'[a-zA-Z]+', desc.lower())
+    keywords = [w for w in words if len(w) > 3 and w not in ['create', 'make', 'build', 'write', 'the', 'and', 'with']][:5]
+    name = '-'.join(keywords) if keywords else f"project-{user_id % 1000}"
+    return name[:30].strip('-') or f"fizzpop-{int(time.time())%10000}"
+
+async def _send_stats(update: Update, state: ConversationState):
+    """Send usage statistics."""
+    s = state.usage
+    avg_lat = s.avg_latency
+    
+    stats = f"""📊 *Usage Statistics*
+━━━━━━━━━━━━━━━━━━━━━━
+🔢 Requests: `{s.total_requests}`
+📝 Input tokens: `{s.total_input_tokens}`
+💬 Output tokens: `{s.total_output_tokens}`
+📦 Total: `{s.total_tokens}`
+⏱ Avg latency: `{avg_lat:.2f}s`
+
+🤖 Models used:
+{chr(10).join(f"• `{m}`: {c}x" for m, c in sorted(s.models_used.items(), key=lambda x:-x[1])[:5])}
+
+📅 First: `{s.first_seen[:10]}`
+🕐 Last: `{s.last_active[:16]}`}
+
+💡 Tip: Use `/reset` to clear history if context gets confused."""
+    
+    await send_with_fallback(update, stats)
+
+# ============================================================================
+# 📨 MAIN MESSAGE HANDLER (Smart routing)
+# ============================================================================
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Smart message handler with auto-routing."""
+    if not update.message or not update.message.text:
+        return
+    
+    user_id = update.effective_user.id
+    text = update.message.text.strip()
+    state = get_user_state(user_id)
+    
+    # Rate limit check
+    allowed, msg = rate_limit_check(update)
+    if not allowed:
+        await update.message.reply_text(msg, parse_mode=TPM.MARKDOWN)
+        return
+    
+    # Auto-detect and route
+    if text.startswith('/'):
+        return  # Let command handlers manage
+    
+    # Add to history
+    state.history.append({"role": "user", "content": text})
+    if len(state.history) > Config.MAX_HISTORY * 2:
+        # Compress old history
+        if Config.CONTEXT_COMPRESSION:
+            state.history = ContextCompressor.compress_history(state.history, max_tokens=5000)
+        else:
+            state.history = state.history[-Config.MAX_HISTORY * 2:]
+    
+    # Show typing
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    
+    # Status message for long responses
+    status_msg = await update.message.reply_text("⏳ *Đang suy nghĩ...*", parse_mode=TPM.MARKDOWN)
+    
+    try:
+        # Smart model selection
+        model_id = state.current_model
+        if state.auto_model:
+            task_type = SmartModelRouter.detect_task_type(text, state.history)
+            model_id, _ = SmartModelRouter.select_best_model(text, state.history, state.budget_conscious)
+        
+        # Prepare messages
+        system_prompt = state.get_adaptive_prompt(SYSTEM_PROMPT if state.mode == 'chat' else AGENT_PROMPT)
+        messages = [{"role": "system", "content": system_prompt}] + state.history[-Config.MAX_HISTORY:]
+        
+        # Call AI with streaming
+        async def stream_callback(preview: str):
+            try:
+                await status_msg.edit_text(f"🤖 *Đang trả lời...*\n\n`{preview}`\n\n⏱ Typing...", parse_mode=TPM.MARKDOWN)
+            except:
+                pass
+        
+        response, metrics = await ai_client.chat(
+            model_id, messages, 
+            stream=Config.STREAMING_RESPONSES,
+            status_callback=stream_callback if Config.STREAMING_RESPONSES else None
+        )
+        
+        # Add to history
+        state.history.append({"role": "assistant", "content": response})
+        if len(state.history) > Config.MAX_HISTORY * 2:
+            state.history = state.history[-Config.MAX_HISTORY * 2:]
+        
+        # Record usage
+        state.usage.record(
+            metrics.get('input_tokens', 0),
+            metrics.get('output_tokens', 0),
+            metrics.get('latency', 0),
+            model_id,
+            SmartModelRouter.detect_task_type(text, state.history)
+        )
+        SmartModelRouter.record_result(model_id, success=True)
+        
+        # Format response
+        model_display = _get_model_display(state.mode, model_id)
+        header = f"🤖 *{model_display}*\n{'━' * 20}\n\n"
+        footer = f"\n\n⏱ `{metrics.get('latency', 0):.2f}s` | 📝 `{metrics.get('output_tokens', 0)}` tokens"
+        full_text = header + response + footer
+        
+        # Send with fallback for long content
+        await status_msg.delete()
+        await send_with_fallback(update, full_text)
+        
+        # Save state
+        await state_store.save(user_id)
+        
+    except Exception as e:
+        logging.error(f"Error: {e}")
+        await status_msg.edit_text(f"⚠️ *Error:* `{str(e)[:200]}`\n\n💡 Try `/reset` or change model.", parse_mode=TPM.MARKDOWN)
+        state.add_note(f"Error: {str(e)[:100]}", success=False)
+        await state_store.save(user_id)
+
+# ============================================================================
+# 📋 MODEL CONFIG (Simplified for single-file)
+# ============================================================================
 
 CATEGORY_EMOJI = {
     "GPT": "🟢", "Claude": "🟣", "Gemini": "🔵", "GLM": "🟡",
     "Qwen": "🟠", "MiniMax": "🔴", "Mistral": "⚪", "DeepSeek": "⚫",
-    "Open-source": "🟤", "Grok": "🟩", "Khác": "🟦",
+    "Khác": "🟦", "TTS": "🔊", "Embedding": "📊"
 }
-
-CHAT_MODELS = {
-    "GPT": [
-        ("gpt-5.4-mini", "GPT-5.4 Mini"),
-        ("gpt-5.2", "GPT-5.2"),
-        ("gpt-5.3-codex", "GPT-5.3 Codex"),
-        ("gpt-5.3-codex-high", "GPT-5.3 Codex High"),
-        ("gpt-5.4", "GPT-5.4"),
-        ("gpt-5.3-codex-xhigh", "GPT-5.3 Codex XHigh"),
-        ("gpt-5.3-codex-low", "GPT-5.3 Codex Low"),
-        ("gpt-5.3-codex-none", "GPT-5.3 Codex None"),
-        ("haidinhphu1704/gpt-5.4-codex", "GPT-5.4 Codex (Chieu)"),
-        ("haidinhphu1704/gpt-5.5-codex", "GPT-5.5 Codex (Chieu)"),
-        ("vuduythanh2023/gpt-5.3-codex", "GPT-5.3 Codex (Vyke)"),
-        ("vuduythanh2023/gpt-5.5", "GPT-5.5 (Vyke)"),
-        ("thanhnhan9023/gpt-image-2", "GPT-Image-2"),
-        ("thanhnhan9023/sl-gpt-5.5", "GPT-5.5 SL"),
-        ("namnv/Claude Opus 4.6 + GPT 5.5", "Claude+GPT Hybrid"),
-        ("tranhieu13102003/gpt-5.5[1m]", "GPT-5.5 [1M]"),
-        ("vykelongthuong/GPT 5.3 Codex", "GPT-5.3 Codex (Vyke)"),
-        ("vykelongthuong/GPT 5.4", "GPT-5.4 (Vyke)"),
-        ("vykelongthuong/GPT 5.5", "GPT-5.5 (Vyke)"),
-        ("w3leee/CodeX GPT 5.3", "CodeX GPT-5.3"),
-        ("w3leee/CodeX GPT 5.4", "CodeX GPT-5.4"),
-        ("w3leee/cx/gpt-5.3-codex-high", "cx GPT-5.3 High"),
-        ("w3leee/GPT 5.5", "GPT-5.5 (W3leee)"),
-        ("hiennqhust/gpt-5.4", "GPT-5.4 (Hien)"),
-        ("hiennqhust/gpt-5.5", "GPT-5.5 (Hien)"),
-    ],
-    "Claude": [
-        ("claude-haiku-4.5", "Claude Haiku 4.5"),
-        ("claude-sonnet-4.5", "Claude Sonnet 4.5"),
-        ("claude-sonnet-4.6", "Claude Sonnet 4.6"),
-        ("claude-sonnet-4", "Claude Sonnet 4"),
-        ("claude-sonnet-4-6", "Claude Sonnet 4-6"),
-        ("claude-sonnet-4-5", "Claude Sonnet 4-5"),
-        ("claude-sonnet-4.6[1m]", "Claude Sonnet 4.6 [1M]"),
-        ("claude-sonnet-4-6[1m]", "Claude Sonnet 4-6 [1M]"),
-        ("26479061/claude-haiku-4.5", "Claude Haiku 4.5 (2647)"),
-        ("26479061/claude-sonnet-4-6", "Claude Sonnet 4-6 (2647)"),
-        ("haidinhphu1704/claude-kiro-sonnet-4.5", "Claude Kiro Sonnet 4.5"),
-        ("haidinhphu1704/claude-kiro-opus-4.7", "Claude Kiro Opus 4.7"),
-        ("haidinhphu1704/claude-opus-4.8-kiro", "Claude Opus 4.8 Kiro"),
-        ("hotrovlg/vult-claude-sonnet-4.6", "Claude Sonnet 4.6 (Vult)"),
-        ("hotrovlg/vult-claude-sonnet-4.6-thinking", "Claude Sonnet 4.6 Thinking"),
-        ("hotrovlg/vult-claude-opus-4.7", "Claude Opus 4.7 (Vult)"),
-        ("hotrovlg/vult-claude-opus-4.7-thinking", "Claude Opus 4.7 Thinking"),
-        ("hotrovlg/vult-claude-opus-4.8-thinking", "Claude Opus 4.8 Thinking"),
-        ("hotrovlg/vult-claude-opus-4.7-thinking-agentic", "Claude Opus 4.7 Agentic"),
-        ("hotrovlg/vult-claude-opus-4.8-thinking-agentic", "Claude Opus 4.8 Agentic"),
-        ("vykelongthuong/Claude Haiku 4.5", "Claude Haiku (Vyke)"),
-        ("vykelongthuong/Claude Sonnet 4.6", "Claude Sonnet 4.6 (Vyke)"),
-    ],
-    "Gemini": [
-        ("gemini-embedding-001", "Gemini Embed 001"),
-        ("gemini-embedding-2-preview", "Gemini Embed 2 Preview"),
-    ],
-    "GLM": [
-        ("glm4.7", "GLM-4.7"),
-        ("glm-5", "GLM-5"),
-        ("glm-5.1", "GLM-5.1"),
-        ("hiennqhust/glm-5.1", "GLM-5.1 (Hien)"),
-    ],
-    "Qwen": [
-        ("qwen3-coder-480b-a35b-instruct", "Qwen3 Coder 480B"),
-        ("deepseek-r1-distill-qwen-32b", "DeepSeek R1 Distill Qwen"),
-        ("qwen3-coder-next", "Qwen3 Coder Next"),
-        ("phuocanh421994/Qwen3.6 27b", "Qwen3.6 27B"),
-        ("phuocanh421994/Qwen3.6 35b a3b", "Qwen3.6 35B A3B"),
-        ("phuocanh421994/Qwen3.6-Flash", "Qwen3.6 Flash"),
-        ("phuocanh421994/Qwen 3.6 Max Preview", "Qwen3.6 Max Preview"),
-        ("phuocanh421994/Qwen 3.6 Plus", "Qwen3.6 Plus"),
-        ("phuocanh421994/Qwen3.5 Plus", "Qwen3.5 Plus"),
-        ("phuocanh421994/Qwen3 Coder Plus", "Qwen3 Coder Plus"),
-        ("phuocanh421994/Qwen3 Max", "Qwen3 Max"),
-        ("phuocanh421994/Qwen 3.7 max", "Qwen3.7 Max"),
-        ("vuduythanh2023/qwen3.6-plus", "Qwen3.6 Plus (Vyke)"),
-        ("vuduythanh2023/qwen3.7-max", "Qwen3.7 Max (Vyke)"),
-        ("hiennqhust/qwen3.6-27b", "Qwen3.6 27B (Hien)"),
-    ],
-    "MiniMax": [
-        ("namtran96hth/MiniMax-M2.7", "MiniMax M2.7"),
-        ("minimax-m2.5", "MiniMax M2.5"),
-        ("minimax-m2.1", "MiniMax M2.1"),
-    ],
-    "Mistral": [
-        ("mistral-small-4-119b-2603", "Mistral Small 4"),
-        ("chieustudio/mistral-large-3-675b-instruct-2512", "Mistral Large 3 (Chieu)"),
-        ("mistral-medium-3.5-128b", "Mistral Medium 3.5"),
-        ("mistral-large-3-675b-instruct-2512", "Mistral Large 3 (Official)"),
-    ],
-    "DeepSeek": [
-        ("chieustudio/deepseek-r1", "DeepSeek R1 (Chieu)"),
-        ("deepseek-3.2", "DeepSeek V3 (3.2)"),
-        ("deepseek-v4-flash", "DeepSeek V4 Flash"),
-        ("deepseek-v4-pro", "DeepSeek V4 Pro"),
-        ("vykelongthuong/Deepseek V4 Flash", "DeepSeek V4 Flash (Vyke)"),
-        ("phuocanh421994/Deepseek V4 Pro", "DeepSeek V4 Pro (Phuoc)"),
-        ("hiennqhust/deepseek-v4-flash", "DeepSeek V4 Flash (Hien)"),
-        ("hiennqhust/deepseek-v4-pro", "DeepSeek V4 Pro (Hien)"),
-    ],
-    "Open-source": [
-        ("llama-nemotron-embed-vl-1b-v2", "Llama Nemotron Embed VL"),
-    ],
-    "Grok": [
-        ("grok-4.20-thinking", "Grok 4.20 Thinking"),
-        ("grok-4.20-fast", "Grok 4.20 Fast"),
-        ("grok-4.3", "Grok 4.3"),
-    ],
-    "Khác": [
-        ("kimi-k2.5", "Kimi K2.5"),
-        ("kimi-k2.6", "Kimi K2.6"),
-        ("hiennqhust/kimi-k2.6", "Kimi K2.6 (Hien)"),
-        ("hiennqhust/greg-1-mini", "Greg-1 Mini"),
-        ("yudhaekasaputra1/Xiaomi MiMo V2.5", "Xiaomi MiMo V2.5"),
-        ("yudhaekasaputra1/Xiaomi MiMo V2.5 Pro", "MiMo V2.5 Pro"),
-        ("hiennqhust/mimo-v2.5-pro", "MiMo V2.5 Pro (Hien)"),
-    ],
-}
-
-EMBED_MODELS = {
-    "Khác": [
-        ("text-embedding-3-small", "Text Embed 3 Small"),
-        ("pplx-embed-v1-4b", "Perplexity Embed v1"),
-    ],
-    "Gemini": [
-        ("gemini-embedding-001", "Gemini Embed 001"),
-        ("gemini-embedding-2-preview", "Gemini Embed 2 Preview"),
-    ],
-    "Open-source": [
-        ("llama-nemotron-embed-vl-1b-v2", "Llama Nemotron Embed VL"),
-    ],
-}
-
-TTS_MODELS = {
-    "Khác": [
-        ("google-tts/vi", "Google TTS Vi"),
-        ("vi-VN-HoaiMyNeural", "HoaiMy Neural"),
-        ("vi-VN-NamMinhNeural", "NamMinh Neural"),
-    ],
-}
-
-def flatten_models(model_dict):
-    result = []
-    for cat, items in model_dict.items():
-        for model_id, display in items:
-            result.append((cat, model_id, display))
-    return result
-
-ALL_CHAT = flatten_models(CHAT_MODELS)
-ALL_EMBED = flatten_models(EMBED_MODELS)
-ALL_TTS = flatten_models(TTS_MODELS)
 
 MODE_CONFIG = {
     "chat": {
         "name": "💬 Chat",
-        "models": ALL_CHAT,
-        "default": DEFAULT_CHAT_MODEL,
-        "endpoint": API_CHAT_URL,
+        "models": [
+            ("DeepSeek", "deepseek-3.2", "DeepSeek V3"),
+            ("GLM", "glm4.7", "GLM-4.7"),
+            ("Mistral", "mistral-medium-3.5-128b", "Mistral Medium 3.5"),
+            ("Qwen", "qwen3-coder-480b-a35b-instruct", "Qwen3 Coder 480B"),
+            ("Claude", "claude-sonnet-4.6", "Claude Sonnet 4.6"),
+            ("GPT", "gpt-5.4", "GPT-5.4"),
+            ("GPT", "gpt-5.4-mini", "GPT-5.4 Mini"),
+            ("Mistral", "mistral-small-4-119b-2603", "Mistral Small 4"),
+        ],
+        "default": Config.DEFAULT_CHAT_MODEL,
     },
     "agent": {
-        "name": "🤖 Agent",
-        "models": ALL_CHAT,
-        "default": DEFAULT_AGENT_MODEL,
-        "endpoint": API_CHAT_URL,
+        "name": "🤖 Agent", 
+        "models": [
+            ("Qwen", "qwen3-coder-480b-a35b-instruct", "Qwen3 Coder 480B"),
+            ("Mistral", "mistral-medium-3.5-128b", "Mistral Medium 3.5"),
+            ("DeepSeek", "deepseek-3.2", "DeepSeek V3"),
+            ("Claude", "claude-sonnet-4.6", "Claude Sonnet 4.6"),
+            ("GPT", "gpt-5.4", "GPT-5.4"),
+        ],
+        "default": Config.DEFAULT_AGENT_MODEL,
     },
     "embed": {
         "name": "📊 Embed",
-        "models": ALL_EMBED,
-        "default": DEFAULT_EMBED_MODEL,
-        "endpoint": API_EMBED_URL,
+        "models": [
+            ("Embedding", "text-embedding-3-small", "Text Embed 3 Small"),
+            ("Gemini", "gemini-embedding-2-preview", "Gemini Embed 2"),
+        ],
+        "default": "text-embedding-3-small",
     },
     "tts": {
         "name": "🔊 TTS",
-        "models": ALL_TTS,
-        "default": DEFAULT_TTS_MODEL,
-        "endpoint": API_TTS_URL,
+        "models": [
+            ("TTS", "google-tts/vi", "Google TTS Vietnamese"),
+            ("TTS", "vi-VN-HoaiMyNeural", "HoaiMy Neural"),
+        ],
+        "default": "google-tts/vi",
     },
 }
 
-# ============================ LOGGING ============================
-
-logging.basicConfig(
-    format='%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
-# ============================ DATA MODELS ============================
-
-@dataclass
-class UserStats:
-    total_requests: int = 0
-    total_input_tokens: int = 0
-    total_output_tokens: int = 0
-    total_latency: float = 0.0
-    tasks_completed: int = 0
-    tasks_failed: int = 0
-    first_seen: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    last_active: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
-@dataclass
-class AgentTask:
-    task_id: str
-    description: str
-    status: str = "pending"
-    created_at: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    completed_at: Optional[str] = None
-    result: Optional[str] = None
-    error: Optional[str] = None
-    files_created: List[str] = field(default_factory=list)
-    repo_url: Optional[str] = None
-    local_path: Optional[str] = None
-    deploy_mode: str = "github"  # github or local
-
-@dataclass
-class ConversationState:
-    history: List[Dict[str, str]] = field(default_factory=list)
-    mode: str = DEFAULT_MODE
-    current_model: str = DEFAULT_CHAT_MODEL
-    stats: UserStats = field(default_factory=UserStats)
-    agent_tasks: List[AgentTask] = field(default_factory=list)
-    github_username: Optional[str] = None
-    preferred_style: str = "clean"
-    last_error: Optional[str] = None
-    self_notes: List[str] = field(default_factory=list)
-    agent_deploy_mode: str = "local"  # default to local ZIP
-
-# ============================ STATE MANAGEMENT ============================
-
-user_states: Dict[int, ConversationState] = {}
-
-def get_user_state(user_id: int) -> ConversationState:
-    if user_id not in user_states:
-        user_states[user_id] = ConversationState()
-    return user_states[user_id]
-
-def generate_task_id() -> str:
-    return f"task_{int(time.time() * 1000)}_{hashlib.md5(str(time.time()).encode()).hexdigest()[:6]}"
-
-def smart_repo_name(description: str) -> str:
-    """Generate meaningful kebab-case repo name from task description."""
-    # Remove common filler words
-    fillers = {
-        'tao', 'tạo', 'viet', 'viết', 'build', 'xay', 'xây', 'dựng', 'làm',
-        'make', 'create', 'generate', 'write', 'code', 'project', 'app',
-        'application', 'system', 'bot', 'api', 'service', 'website',
-        'một', 'mot', 'cai', 'cái', 'cho', 'toi', 'tôi', 'cho', 'with',
-        'using', 'use', 'by', 'simple', 'basic', 'advanced', 'full',
-        'complete', 'fully', 'feature', 'featured'
-    }
-
-    # Clean and normalize
-    text = description.lower()
-    text = re.sub(r'[^\w\s-]', ' ', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-
-    words = text.split()
-    keywords = [w for w in words if w not in fillers and len(w) > 2][:6]
-
-    if not keywords:
-        keywords = [w for w in words if len(w) > 1][:4]
-
-    name = '-'.join(keywords)
-    name = re.sub(r'-+', '-', name).strip('-')
-    name = name[:30].strip('-')
-
-    if not name or len(name) < 3:
-        name = f"fizzpop-agent-{int(time.time()) % 10000}"
-
-    return name
-
-def get_mode_models(mode: str):
-    return MODE_CONFIG[mode]["models"]
-
-def get_default_model(mode: str):
-    return MODE_CONFIG[mode]["default"]
-
-def get_model_display(mode: str, model_id: str) -> str:
-    for cat, mid, disp in MODE_CONFIG[mode]["models"]:
+def _get_model_display(mode: str, model_id: str) -> str:
+    """Get display name with emoji."""
+    for cat, mid, display in MODE_CONFIG.get(mode, {}).get("models", []):
         if mid == model_id:
-            return f"{CATEGORY_EMOJI.get(cat, '⚪')} {disp}"
+            return f"{CATEGORY_EMOJI.get(cat, '⚪')} {display}"
     return model_id
 
-def get_model_category(mode: str, model_id: str) -> str:
-    for cat, mid, disp in MODE_CONFIG[mode]["models"]:
-        if mid == model_id:
-            return cat
-    return "Khác"
-
-# ============================ UTILITIES ============================
-
-def estimate_tokens(text: str) -> int:
-    if not text:
-        return 0
-    return max(1, len(text.encode('utf-8')) // 4)
-
-async def send_long_text(update: Update, text: str, filename: str = "response.txt"):
-    if len(text) <= TELEGRAM_MSG_LIMIT:
-        try:
-            await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-        except Exception:
-            await update.message.reply_text(text)
-        return
-
-    bio = io.BytesIO(text.encode('utf-8'))
-    bio.name = filename
-    await update.message.reply_document(
-        document=bio,
-        caption=f"📄 Phản hồi quá dài ({len(text)} ký tự), đã gửi dưới dạng file."
-    )
-
-def build_metrics_footer(metrics: Dict[str, Any], state: ConversationState) -> str:
-    latency = metrics.get('latency', 0)
-    inp = metrics.get('input_tokens', 0)
-    out = metrics.get('output_tokens', 0)
-    total = inp + out
-    tps = metrics.get('tps', 0)
-
-    state.stats.total_requests += 1
-    state.stats.total_input_tokens += inp
-    state.stats.total_output_tokens += out
-    state.stats.total_latency += latency
-    state.stats.last_active = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    lines = [
-        "",
-        "━" * 18,
-        "📊 *Metrics*",
-        f"• ⏱ Latency: `{latency:.2f}s`",
-        f"• 📝 Input: `{inp}` tokens",
-        f"• 💬 Output: `{out}` tokens",
-        f"• 📦 Total: `{total}` tokens",
-        f"• ⚡ Speed: `{tps:.1f}` tok/s"
-    ]
-    return "\n".join(lines)
-
-def escape_markdown(text: str) -> str:
-    chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-    for ch in chars:
-        text = text.replace(ch, f'\\{ch}')
-    return text
-
-# ============================ FILE PARSER ============================
-
-def parse_agent_files(text: str) -> Dict[str, str]:
-    """Parse AI output into files using <<<FILE:filename>>> markers."""
-    files = {}
-    pattern = r'<<<FILE:\s*([^>\s]+)\s*>>>(.*?)<<<ENDFILE>>>'
-    matches = re.findall(pattern, text, re.DOTALL)
-
-    for filename, content in matches:
-        filename = filename.strip()
-        content = content.strip()
-        if filename and content:
-            files[filename] = content
-
-    # Fallback: if no markers found, try to detect code blocks with filenames
-    if not files:
-        # Look for patterns like ```python filename.py or # filename.py
-        code_block_pattern = r'```(?:\w+)?\s*\n?(?:#\s*)?([^\n]+\.\w+)\n(.*?)```'
-        matches = re.findall(code_block_pattern, text, re.DOTALL)
-        for filename, content in matches:
-            filename = filename.strip()
-            content = content.strip()
-            if filename and content and '.' in filename:
-                files[filename] = content
-
-    # Last resort: if text looks like single file code
-    if not files and len(text) > 100:
-        # Check if it contains import/def/class
-        if any(kw in text for kw in ['import ', 'def ', 'class ', 'const ', 'function ']):
-            files["main.py"] = text.strip()
-
-    return files
-
-# ============================ LOCAL ZIP AGENT ============================
-
-async def save_agent_local(task_id: str, files: Dict[str, str]) -> Path:
-    """Save agent files locally and return zip path."""
-    task_dir = AGENT_WORK_DIR / task_id
-    task_dir.mkdir(parents=True, exist_ok=True)
-
-    for filename, content in files.items():
-        # Sanitize filename
-        safe_name = re.sub(r'[^\w\-\./]', '_', filename)
-        file_path = task_dir / safe_name
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(content, encoding='utf-8')
-
-    # Create ZIP
-    zip_path = AGENT_WORK_DIR / f"{task_id}.zip"
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for file_path in task_dir.rglob('*'):
-            if file_path.is_file():
-                arcname = str(file_path.relative_to(task_dir))
-                zf.write(file_path, arcname)
-
-    return zip_path
-
-# ============================ GITHUB API CLIENT ============================
-
-class GitHubAgent:
-    def __init__(self, token: str):
-        self.token = token
-        self.headers = {
-            "Authorization": f"token {token}",
-            "Accept": "application/vnd.github.v3+json",
-            "Content-Type": "application/json"
-        }
-        self.session: Optional[aiohttp.ClientSession] = None
-
-    async def init_session(self):
-        if not self.session:
-            self.session = aiohttp.ClientSession()
-
-    async def close(self):
-        if self.session:
-            await self.session.close()
-            self.session = None
-
-    async def _request(self, method: str, endpoint: str, **kwargs) -> Tuple[int, Any]:
-        await self.init_session()
-        url = f"{GITHUB_API_BASE}{endpoint}"
-        async with self.session.request(method, url, headers=self.headers, **kwargs) as resp:
-            try:
-                data = await resp.json()
-            except:
-                data = await resp.text()
-            return resp.status, data
-
-    async def get_user(self) -> Tuple[bool, Dict]:
-        status, data = await self._request("GET", "/user")
-        return status == 200, data
-
-    async def create_repo(self, name: str, description: str = "", private: bool = False) -> Tuple[bool, Dict]:
-        payload = {
-            "name": name,
-            "description": description,
-            "private": private,
-            "auto_init": True
-        }
-        status, data = await self._request("POST", "/user/repos", json=payload)
-        return status == 201, data
-
-    async def get_file(self, owner: str, repo: str, path: str, branch: str = "main") -> Tuple[bool, Dict]:
-        status, data = await self._request("GET", f"/repos/{owner}/{repo}/contents/{path}?ref={branch}")
-        return status == 200, data
-
-    async def create_file(self, owner: str, repo: str, path: str, content: str, message: str, branch: str = "main") -> Tuple[bool, Dict]:
-        encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
-        payload = {"message": message, "content": encoded, "branch": branch}
-        status, data = await self._request("PUT", f"/repos/{owner}/{repo}/contents/{path}", json=payload)
-        return status in (200, 201), data
-
-    async def update_file(self, owner: str, repo: str, path: str, content: str, message: str, sha: str, branch: str = "main") -> Tuple[bool, Dict]:
-        encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
-        payload = {"message": message, "content": encoded, "sha": sha, "branch": branch}
-        status, data = await self._request("PUT", f"/repos/{owner}/{repo}/contents/{path}", json=payload)
-        return status in (200, 201), data
-
-    async def delete_file(self, owner: str, repo: str, path: str, message: str, sha: str, branch: str = "main") -> Tuple[bool, Dict]:
-        payload = {"message": message, "sha": sha, "branch": branch}
-        status, data = await self._request("DELETE", f"/repos/{owner}/{repo}/contents/{path}", json=payload)
-        return status == 200, data
-
-    async def list_files(self, owner: str, repo: str, path: str = "", branch: str = "main") -> Tuple[bool, List]:
-        endpoint = f"/repos/{owner}/{repo}/contents/{path}?ref={branch}" if path else f"/repos/{owner}/{repo}/contents?ref={branch}"
-        status, data = await self._request("GET", endpoint)
-        if status == 200 and isinstance(data, list):
-            return True, data
-        return False, data if isinstance(data, list) else []
-
-    async def create_branch(self, owner: str, repo: str, new_branch: str, from_branch: str = "main") -> Tuple[bool, Dict]:
-        status, data = await self._request("GET", f"/repos/{owner}/{repo}/git/refs/heads/{from_branch}")
-        if status != 200:
-            return False, data
-        sha = data.get("object", {}).get("sha", "")
-        payload = {"ref": f"refs/heads/{new_branch}", "sha": sha}
-        status, data = await self._request("POST", f"/repos/{owner}/{repo}/git/refs", json=payload)
-        return status == 201, data
-
-    async def create_pr(self, owner: str, repo: str, title: str, head: str, base: str, body: str = "") -> Tuple[bool, Dict]:
-        payload = {"title": title, "head": head, "base": base, "body": body}
-        status, data = await self._request("POST", f"/repos/{owner}/{repo}/pulls", json=payload)
-        return status == 201, data
-
-    async def get_commits(self, owner: str, repo: str, branch: str = "main", per_page: int = 10) -> Tuple[bool, List]:
-        status, data = await self._request("GET", f"/repos/{owner}/{repo}/commits?sha={branch}&per_page={per_page}")
-        if status == 200 and isinstance(data, list):
-            return True, data
-        return False, []
-
-github_agent = GitHubAgent(GITHUB_TOKEN)
-
-# ============================ AI API CLIENTS ============================
-
-async def call_chat_api(
-    session: aiohttp.ClientSession,
-    model_id: str,
-    messages: List[Dict[str, str]],
-    status_msg: Any,
-    system_prompt: str = SYSTEM_PROMPT,
-    max_tokens: int = MAX_OUTPUT_TOKENS,
-) -> Tuple[str, Dict[str, Any]]:
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {API_KEY}"
-    }
-
-    msgs = []
-    has_system = False
-    for m in messages:
-        if m.get("role") == "system":
-            if not has_system:
-                msgs.append({"role": "system", "content": system_prompt})
-                has_system = True
-        else:
-            msgs.append(m)
-    if not has_system:
-        msgs.insert(0, {"role": "system", "content": system_prompt})
-
-    payload = {
-        "model": model_id,
-        "messages": msgs,
-        "temperature": 0.7,
-        "max_tokens": max_tokens
-    }
-
-    start_time = time.time()
-
-    async def _update_status():
-        dots = 0
-        while True:
-            try:
-                await asyncio.sleep(STATUS_UPDATE_INTERVAL)
-                elapsed = time.time() - start_time
-                dots = (dots + 1) % 4
-                await status_msg.edit_text(
-                    f"⏳ *Đang suy nghĩ{'·' * dots}{' ' * (3-dots)}*\n\n"
-                    f"🤖 *Model:* `{model_id}`\n"
-                    f"⏱ *Thời gian chờ:* `{elapsed:.1f}s`\n"
-                    f"💡 *Trạng thái:* `Đang tạo phản hồi...`",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            except Exception:
-                pass
-
-    status_task = asyncio.create_task(_update_status())
-
-    try:
-        timeout = aiohttp.ClientTimeout(total=None, connect=30)
-        async with session.post(API_CHAT_URL, headers=headers, json=payload, timeout=timeout) as resp:
-            if resp.status != 200:
-                error_body = await resp.text()
-                raise aiohttp.ClientResponseError(
-                    resp.request_info, resp.history, status=resp.status,
-                    message=f"API Error {resp.status}: {error_body[:500]}"
-                )
-            result = await resp.json()
-    except Exception:
-        raise
-    finally:
-        status_task.cancel()
-        try:
-            await status_task
-        except asyncio.CancelledError:
-            pass
-
-    latency = time.time() - start_time
-
-    if not isinstance(result, dict):
-        raise ValueError(f"Invalid API response type: {type(result)}")
-
-    choices = result.get('choices', [])
-    if not choices:
-        raise ValueError(f"No choices in API response")
-
-    content = choices[0].get('message', {}).get('content', '')
-    if not content:
-        raise ValueError("Empty content from API")
-
-    usage = result.get('usage', {})
-    input_tokens = usage.get('prompt_tokens', 0)
-    output_tokens = usage.get('completion_tokens', 0)
-
-    if input_tokens == 0:
-        input_tokens = sum(estimate_tokens(m.get('content', '')) for m in msgs)
-    if output_tokens == 0:
-        output_tokens = estimate_tokens(content)
-
-    metrics = {
-        'latency': latency,
-        'input_tokens': input_tokens,
-        'output_tokens': output_tokens,
-        'total_tokens': input_tokens + output_tokens,
-        'tps': output_tokens / latency if latency > 0 else 0
-    }
-
-    return content, metrics
-
-async def call_embed_api(
-    session: aiohttp.ClientSession,
-    model_id: str,
-    text_input: str,
-    status_msg: Any,
-) -> Tuple[str, Dict[str, Any], str]:
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {API_KEY}"
-    }
-    payload = {"model": model_id, "input": text_input}
-
-    start_time = time.time()
-
-    async def _update_status():
-        dots = 0
-        while True:
-            try:
-                await asyncio.sleep(STATUS_UPDATE_INTERVAL)
-                elapsed = time.time() - start_time
-                dots = (dots + 1) % 4
-                await status_msg.edit_text(
-                    f"⏳ *Đang embed{'·' * dots}{' ' * (3-dots)}*\n\n"
-                    f"🤖 *Model:* `{model_id}`\n"
-                    f"⏱ *Thời gian chờ:* `{elapsed:.1f}s`\n"
-                    f"💡 *Trạng thái:* `Đang tính vector...`",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            except Exception:
-                pass
-
-    status_task = asyncio.create_task(_update_status())
-
-    try:
-        timeout = aiohttp.ClientTimeout(total=None, connect=30)
-        async with session.post(API_EMBED_URL, headers=headers, json=payload, timeout=timeout) as resp:
-            if resp.status != 200:
-                error_body = await resp.text()
-                raise aiohttp.ClientResponseError(
-                    resp.request_info, resp.history, status=resp.status,
-                    message=f"API Error {resp.status}: {error_body[:500]}"
-                )
-            result = await resp.json()
-    except Exception:
-        raise
-    finally:
-        status_task.cancel()
-        try:
-            await status_task
-        except asyncio.CancelledError:
-            pass
-
-    latency = time.time() - start_time
-
-    if not isinstance(result, dict):
-        raise ValueError(f"Invalid API response type: {type(result)}")
-
-    data = result.get('data', [])
-    if not data:
-        raise ValueError("No embedding data returned")
-
-    embedding = data[0].get('embedding', [])
-    dims = len(embedding)
-    preview = embedding[:5]
-    preview_str = ", ".join([f"{v:.6f}" for v in preview])
-
-    content = (
-        f"📊 *Embedding Result*\n"
-        f"{'━' * 20}\n"
-        f"• 📐 Dimensions: `{dims}`\n"
-        f"• 🔢 Preview (first 5): `{preview_str}...`\n\n"
-        f"📄 *Full vector* đã được lưu trong file đính kèm."
-    )
-
-    full_vector_text = f"Model: {model_id}\nDimensions: {dims}\n\nEmbedding Vector:\n{json.dumps(embedding, indent=2)}"
-
-    usage = result.get('usage', {})
-    input_tokens = usage.get('prompt_tokens', 0) or usage.get('input_tokens', 0) or estimate_tokens(text_input)
-
-    metrics = {
-        'latency': latency,
-        'input_tokens': input_tokens,
-        'output_tokens': 0,
-        'total_tokens': input_tokens,
-        'tps': 0
-    }
-
-    return content, metrics, full_vector_text
-
-async def call_tts_api(
-    session: aiohttp.ClientSession,
-    model_id: str,
-    text_input: str,
-    status_msg: Any,
-) -> Tuple[bytes, Dict[str, Any]]:
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {API_KEY}"
-    }
-    payload = {"model": model_id, "input": text_input, "voice": "alloy"}
-
-    start_time = time.time()
-
-    async def _update_status():
-        dots = 0
-        while True:
-            try:
-                await asyncio.sleep(STATUS_UPDATE_INTERVAL)
-                elapsed = time.time() - start_time
-                dots = (dots + 1) % 4
-                await status_msg.edit_text(
-                    f"⏳ *Đang tổng hợp giọng nói{'·' * dots}{' ' * (3-dots)}*\n\n"
-                    f"🤖 *Model:* `{model_id}`\n"
-                    f"⏱ *Thời gian chờ:* `{elapsed:.1f}s`\n"
-                    f"💡 *Trạng thái:* `Đang tạo audio...`",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            except Exception:
-                pass
-
-    status_task = asyncio.create_task(_update_status())
-
-    try:
-        timeout = aiohttp.ClientTimeout(total=None, connect=30)
-        async with session.post(API_TTS_URL, headers=headers, json=payload, timeout=timeout) as resp:
-            if resp.status != 200:
-                error_body = await resp.text()
-                raise aiohttp.ClientResponseError(
-                    resp.request_info, resp.history, status=resp.status,
-                    message=f"API Error {resp.status}: {error_body[:500]}"
-                )
-            audio_bytes = await resp.read()
-    except Exception:
-        raise
-    finally:
-        status_task.cancel()
-        try:
-            await status_task
-        except asyncio.CancelledError:
-            pass
-
-    latency = time.time() - start_time
-
-    if not audio_bytes or len(audio_bytes) < 100:
-        raise ValueError("Received empty or invalid audio data")
-
-    metrics = {
-        'latency': latency,
-        'input_tokens': estimate_tokens(text_input),
-        'output_tokens': 0,
-        'total_tokens': estimate_tokens(text_input),
-        'tps': 0
-    }
-
-    return audio_bytes, metrics
-
-# ============================ AGENT INTELLIGENCE ============================
-
-async def agent_self_reflect(task: AgentTask, state: ConversationState) -> str:
-    reflection = (
-        f"🧠 *Self-Reflection*\n"
-        f"{'━' * 20}\n"
-        f"• Task: `{task.task_id}`\n"
-        f"• Status: {task.status}\n"
-    )
-    if task.error:
-        reflection += f"• Error pattern recorded: `{task.error[:100]}`\n"
-        state.self_notes.append(f"Avoid: {task.error[:200]}")
-    else:
-        reflection += f"• Success pattern recorded\n"
-        state.self_notes.append(f"Success: {task.description[:200]}")
-
-    state.self_notes = state.self_notes[-50:]
-    return reflection
-
-async def agent_analyze_code(code: str, language: str = "python") -> str:
-    issues = []
-
-    if language == "python":
-        try:
-            compile(code, '<string>', 'exec')
-            issues.append("✅ Syntax: Valid Python")
-        except SyntaxError as e:
-            issues.append(f"❌ Syntax Error: Line {e.lineno}: {e.msg}")
-
-        if "import " in code and "if __name__" not in code and len(code.split('\n')) > 20:
-            issues.append("⚠️ No `if __name__ == '__main__'` guard detected")
-
-        if "except:" in code:
-            issues.append("⚠️ Bare `except:` found — use specific exceptions")
-
-        if "print(" in code and "logging" not in code:
-            issues.append("💡 Consider using `logging` instead of `print()`")
-
-        if "TODO" in code or "FIXME" in code:
-            issues.append("📝 TODO/FIXME markers found in code")
-
-        if code.count('def ') > 15:
-            issues.append("📊 High function count — consider modularizing")
-
-    return "\n".join(issues) if issues else "✅ Code analysis: No obvious issues found"
-
-# ============================ COMMAND HANDLERS ============================
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-    mode_name = MODE_CONFIG[state.mode]["name"]
-    model_disp = get_model_display(state.mode, state.current_model)
-
-    welcome = (
-        f"╔══════════════════════╗\n"
-        f"║   🤖 *FizzPop AI*    ║\n"
-        f"║   *AGENT v5.0*       ║\n"
-        f"╚══════════════════════╝\n\n"
-        f"👋 Chào mừng *{update.effective_user.first_name or 'bạn'}*!\n\n"
-        f"🧠 *AI Agent tự chủ — Tự code, tự sửa lỗi, tự học*\n\n"
-        f"📦 *4 Chế độ:*\n"
-        f"• 💬 Chat — Hỏi đáp AI thông thường\n"
-        f"• 🤖 Agent — Tự động code + deploy\n"
-        f"• 📊 Embed — Text → Vector embedding\n"
-        f"• 🔊 TTS — Text → Giọng nói MP3\n\n"
-        f"🚀 Mode: {mode_name} | Model: {model_disp}\n\n"
-        f"📚 *Lệnh chính:*\n"
-        f"• /models — Chọn model\n"
-        f"• /mode — Đổi chế độ\n"
-        f"• /agent — Chạy agent task\n"
-        f"• /git — GitHub commands\n"
-        f"• /analyze — Phân tích code\n"
-        f"• /status — Trạng thái\n"
-        f"• /stats — Thống kê\n"
-        f"• /reset — Xóa lịch sử\n"
-        f"• /help — Chi tiết"
-    )
-    await update.message.reply_text(welcome, parse_mode=ParseMode.MARKDOWN)
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = (
-        f"📖 *Hướng Dẫn Sử Dụng — FizzPop AI Agent*\n"
-        f"{'━' * 22}\n\n"
-        f"🚀 *Lệnh chính:*\n"
-        f"• `/start` — Khởi động\n"
-        f"• `/models` — Danh sách model (nút bấm)\n"
-        f"• `/switch <số>` — Đổi model nhanh\n"
-        f"• `/mode` — Đổi chế độ chat/agent/embed/tts\n"
-        f"• `/status` — Xem trạng thái hiện tại\n"
-        f"• `/stats` — Thống kê sử dụng\n"
-        f"• `/reset` — Xóa lịch sử + tasks + context\n"
-        f"• `/help` — Hiển thị trợ giúp này\n\n"
-        f"🤖 *Agent Commands:*\n"
-        f"• `/agent <mô tả>` — Yêu cầu AI tự code & deploy\n"
-        f"  - Mặc định deploy dạng file .zip local\n"
-        f"  - Hoặc: `/agent github <mô tả>` để push GitHub\n"
-        f"  - Hoặc: `/agent local <mô tả>` để lưu file .zip\n"
-        f"• `/git` — Danh sách lệnh GitHub\n"
-        f"  - `/git repo <tên>` — Tạo repository\n"
-        f"  - `/git push <owner/repo> <path>` — Push file\n"
-        f"  - `/git get <owner/repo> <path>` — Đọc file\n"
-        f"  - `/git list <owner/repo> [path]` — Liệt kê files\n"
-        f"  - `/git branch <owner/repo> <branch>` — Tạo branch\n"
-        f"  - `/git pr <owner/repo> <title> <head> <base>` — Tạo PR\n"
-        f"  - `/git delete <owner/repo> <path>` — Xóa file\n"
-        f"  - `/git commits <owner/repo>` — Xem lịch sử commit\n"
-        f"• `/analyze <code>` hoặc reply code — Phân tích code\n"
-        f"• `/tasks` — Xem lịch sử agent tasks\n"
-        f"• `/learn` — Xem ghi chú tự học của AI\n\n"
-        f"💡 *Tính năng nổi bật:*\n"
-        f"• ⏱ *Không timeout* — Chờ AI trả lời dù lâu\n"
-        f"• 📊 *Metrics real-time* — Latency, tokens, tok/s\n"
-        f"• 🧠 *Nhớ context* — Giữ {MAX_HISTORY} tin nhắn\n"
-        f"• 🤖 *Self-improving* — AI tự ghi nhận lỗi & cải thiện\n"
-        f"• 📁 *File output* — Phản hồi dài → file .txt\n"
-        f"• 📦 *Agent deploy* — Code → .zip hoặc GitHub\n"
-        f"• 🔊 *TTS* — Trả về file MP3\n\n"
-        f"⚠️ *Lưu ý:*\n"
-        f"• Dùng `/reset` nếu AI bị lẫn ngữ cảnh\n"
-        f"• Agent mode mặc định lưu file .zip (không cần token)\n"
-        f"• Để push GitHub, dùng `/agent github <task>`"
-    )
-    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
-
-async def show_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-    mode = state.mode
-    mode_name = MODE_CONFIG[mode]["name"]
-    current_model = state.current_model
-    models_list = MODE_CONFIG[mode]["models"]
-
-    keyboard = []
-    row = []
-
-    for idx, (cat, model_id, display) in enumerate(models_list, 1):
-        prefix = "✅ " if model_id == current_model else ""
-        emoji = CATEGORY_EMOJI.get(cat, "⚪")
-        btn_text = f"{prefix}{idx}.{emoji}{display[:18]}"
-        button = InlineKeyboardButton(btn_text, callback_data=f"model_{mode}_{idx}")
-        row.append(button)
-        if len(row) == 1:
-            keyboard.append(row)
-            row = []
-    if row:
-        keyboard.append(row)
-
-    keyboard.append([InlineKeyboardButton("🔄 Làm mới", callback_data="refresh_models")])
-
-    header = (
-        f"📂 *Danh Sách Model — {mode_name}*\n"
-        f"{'━' * 22}\n"
-        f"✅ = Đang dùng: `{get_model_display(mode, current_model)}`\n"
-        f"📊 Tổng: {len(models_list)} models\n\n"
-        f"👇 *Chọn model:*"
-    )
-
-    await update.message.reply_text(
-        header,
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-    data = query.data
-
-    if data == "refresh_models":
-        await query.edit_message_text("🔄 Đang làm mới...")
-        mode = state.mode
-        mode_name = MODE_CONFIG[mode]["name"]
-        current_model = state.current_model
-        models_list = MODE_CONFIG[mode]["models"]
-
-        keyboard = []
-        row = []
-        for idx, (cat, model_id, display) in enumerate(models_list, 1):
-            prefix = "✅ " if model_id == current_model else ""
-            emoji = CATEGORY_EMOJI.get(cat, "⚪")
-            btn_text = f"{prefix}{idx}.{emoji}{display[:18]}"
-            button = InlineKeyboardButton(btn_text, callback_data=f"model_{mode}_{idx}")
-            row.append(button)
-            if len(row) == 1:
-                keyboard.append(row)
-                row = []
-        if row:
-            keyboard.append(row)
-        keyboard.append([InlineKeyboardButton("🔄 Làm mới", callback_data="refresh_models")])
-
-        await query.edit_message_text(
-            f"📂 *Danh Sách Model — {mode_name}*\n{'━' * 22}\n✅ = Đang dùng\n\n👇 *Chọn model:*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    if data.startswith("model_"):
-        parts = data.split("_")
-        if len(parts) >= 3:
-            mode = parts[1]
-            try:
-                choice = int(parts[2])
-                models_list = MODE_CONFIG[mode]["models"]
-
-                if 1 <= choice <= len(models_list):
-                    cat, selected_id, selected_disp = models_list[choice - 1]
-                    state.mode = mode
-                    state.current_model = selected_id
-
-                    await query.edit_message_text(
-                        f"✅ *Đã chuyển!*\n\n"
-                        f"🔄 Mode: *{MODE_CONFIG[mode]['name']}*\n"
-                        f"🤖 Model: *{CATEGORY_EMOJI.get(cat, '⚪')} {selected_disp}*\n"
-                        f"🆔 ID: `{selected_id}`\n\n"
-                        f"💡 Gõ `/reset` nếu muốn xóa ngữ cảnh cũ.",
-                        parse_mode=ParseMode.MARKDOWN
-                    )
-                else:
-                    await query.edit_message_text("❌ Số không hợp lệ.", parse_mode=ParseMode.MARKDOWN)
-            except ValueError:
-                await query.edit_message_text("❌ Lỗi xử lý.", parse_mode=ParseMode.MARKDOWN)
-
-async def switch_model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text(
-            "❌ *Cú pháp:* `/switch <số>`\nVí dụ: `/switch 2`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    try:
-        choice = int(context.args[0])
-        user_id = update.effective_user.id
-        state = get_user_state(user_id)
-        mode = state.mode
-        models_list = MODE_CONFIG[mode]["models"]
-
-        if 1 <= choice <= len(models_list):
-            cat, selected_id, selected_disp = models_list[choice - 1]
-            state.current_model = selected_id
-
-            await update.message.reply_text(
-                f"✅ *Đã chuyển model!*\n\n"
-                f"🤖 {CATEGORY_EMOJI.get(cat, '⚪')} *{selected_disp}*\n"
-                f"🆔 `{selected_id}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        else:
-            await update.message.reply_text(
-                f"❌ Chọn số từ 1 đến {len(models_list)}.",
-                parse_mode=ParseMode.MARKDOWN
-            )
-    except ValueError:
-        await update.message.reply_text(
-            "❌ Vui lòng nhập số hợp lệ.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-
-    if not context.args:
-        current = state.mode
-        keyboard = []
-        for mode_key, mode_info in MODE_CONFIG.items():
-            prefix = "✅ " if mode_key == current else ""
-            keyboard.append([InlineKeyboardButton(
-                f"{prefix}{mode_info['name']}",
-                callback_data=f"setmode_{mode_key}"
-            )])
-
-        await update.message.reply_text(
-            f"🔄 *Chọn chế độ hoạt động:*\n"
-            f"Hiện tại: {MODE_CONFIG[current]['name']}",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    mode_arg = context.args[0].lower()
-    if mode_arg in MODE_CONFIG:
-        state.mode = mode_arg
-        state.current_model = MODE_CONFIG[mode_arg]["default"]
-        state.history = []
-
-        await update.message.reply_text(
-            f"✅ *Đã chuyển chế độ!*\n\n"
-            f"🔄 Mode: *{MODE_CONFIG[mode_arg]['name']}*\n"
-            f"🤖 Model mặc định: `{state.current_model}`\n"
-            f"🗑 Đã xóa lịch sử cũ.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-    else:
-        await update.message.reply_text(
-            "❌ *Chế độ không hợp lệ!*\n"
-            "Chọn: `chat`, `agent`, `embed`, hoặc `tts`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-async def mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-    data = query.data
-
-    if data.startswith("setmode_"):
-        mode_key = data.replace("setmode_", "")
-        if mode_key in MODE_CONFIG:
-            state.mode = mode_key
-            state.current_model = MODE_CONFIG[mode_key]["default"]
-            state.history = []
-
-            await query.edit_message_text(
-                f"✅ *Đã chuyển chế độ!*\n\n"
-                f"🔄 Mode: *{MODE_CONFIG[mode_key]['name']}*\n"
-                f"🤖 Model: `{state.current_model}`\n"
-                f"🗑 Đã xóa lịch sử cũ.",
-                parse_mode=ParseMode.MARKDOWN
-            )
-
-async def reset_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id in user_states:
-        user_states[user_id].history = []
-        user_states[user_id].agent_tasks = []
-
-    await update.message.reply_text(
-        "🗑 *Đã xóa toàn bộ!*\n"
-        "🆕 Ngữ cảnh + tasks + history mới.",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-
-    history_len = len(state.history)
-    mode_name = MODE_CONFIG[state.mode]["name"]
-    model_disp = get_model_display(state.mode, state.current_model)
-    cat = get_model_category(state.mode, state.current_model)
-    task_count = len(state.agent_tasks)
-    completed = sum(1 for t in state.agent_tasks if t.status == "completed")
-    failed = sum(1 for t in state.agent_tasks if t.status == "failed")
-
-    status = (
-        f"ℹ️ *Trạng Thái Agent*\n"
-        f"{'━' * 20}\n\n"
-        f"🔄 *Mode:* {mode_name}\n"
-        f"🤖 *Model:* {model_disp}\n"
-        f"🏷 *Category:* `{cat}`\n"
-        f"🆔 *ID:* `{state.current_model}`\n"
-        f"💬 *History:* `{history_len // 2}` cặp\n"
-        f"📝 *Tin nhắn lưu:* `{history_len}/{MAX_HISTORY * 2}`\n"
-        f"🤖 *Agent tasks:* `{completed}✅ {failed}❌ {task_count - completed - failed}⏳`\n"
-        f"🧠 *Self-notes:* `{len(state.self_notes)}` ghi chú\n"
-        f"📦 *Deploy mode:* `{state.agent_deploy_mode}`\n"
-        f"📅 *Bắt đầu:* `{state.stats.first_seen}`\n"
-        f"🕐 *Hoạt động cuối:* `{state.stats.last_active}`"
-    )
-    await update.message.reply_text(status, parse_mode=ParseMode.MARKDOWN)
-
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-    s = state.stats
-
-    avg_latency = s.total_latency / s.total_requests if s.total_requests > 0 else 0
-
-    stats_text = (
-        f"📊 *Thống Kê Sử Dụng*\n"
-        f"{'━' * 20}\n\n"
-        f"🔢 *Request:* `{s.total_requests}`\n"
-        f"📝 *Input tokens:* `{s.total_input_tokens}`\n"
-        f"💬 *Output tokens:* `{s.total_output_tokens}`\n"
-        f"📦 *Tổng tokens:* `{s.total_input_tokens + s.total_output_tokens}`\n"
-        f"⏱ *Tổng latency:* `{s.total_latency:.2f}s`\n"
-        f"⚡ *Latency TB:* `{avg_latency:.2f}s`\n"
-        f"✅ *Tasks thành công:* `{s.tasks_completed}`\n"
-        f"❌ *Tasks thất bại:* `{s.tasks_failed}`\n"
-        f"📅 *Bắt đầu:* `{s.first_seen}`\n"
-        f"🕐 *Cuối:* `{s.last_active}`"
-    )
-    await update.message.reply_text(stats_text, parse_mode=ParseMode.MARKDOWN)
-
-async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-
-    if not state.agent_tasks:
-        await update.message.reply_text(
-            "📭 *Chưa có agent task nào.*\n\n"
-            "Dùng `/agent <mô tả>` để bắt đầu.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    msg = f"🤖 *Lịch Sử Agent Tasks*\n{'━' * 22}\n\n"
-    for i, task in enumerate(state.agent_tasks[-10:], 1):
-        status_emoji = {"completed": "✅", "failed": "❌", "running": "🔄", "pending": "⏳"}.get(task.status, "❓")
-        deploy = f"📦 {task.deploy_mode}"
-        if task.repo_url:
-            deploy = f"🔗 GitHub"
-        elif task.local_path:
-            deploy = f"📦 Local ZIP"
-        msg += (
-            f"{i}. {status_emoji} `{task.task_id}`\n"
-            f"   📝 {task.description[:40]}...\n"
-            f"   {deploy} | ⏰ {task.created_at}\n\n"
-        )
-
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
-
-async def learn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-
-    if not state.self_notes:
-        await update.message.reply_text(
-            "🧠 *Chưa có ghi chú tự học.*\n"
-            "AI sẽ tự động ghi nhận sau mỗi task.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    msg = f"🧠 *Ghi Chú Tự Học Của AI*\n{'━' * 22}\n\n"
-    for i, note in enumerate(state.self_notes[-20:], 1):
-        msg += f"{i}. `{note[:100]}`\n"
-
-    await send_long_text(update, msg, filename="self_notes.txt")
-
-async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    code = ""
-    if update.message.reply_to_message and update.message.reply_to_message.text:
-        code = update.message.reply_to_message.text
-    elif context.args:
-        code = " ".join(context.args)
-
-    if not code:
-        await update.message.reply_text(
-            "❌ *Cung cấp code để phân tích:*\n"
-            "• Reply vào tin nhắn chứa code và gõ `/analyze`\n"
-            "• Hoặc: `/analyze <code>`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    result = await agent_analyze_code(code)
-
-    await update.message.reply_text(
-        f"🔍 *Kết Quả Phân Tích Code*\n"
-        f"{'━' * 22}\n\n"
-        f"```{result}```",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-async def deploy_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-
-    if not context.args:
-        current = state.agent_deploy_mode
-        keyboard = [
-            [InlineKeyboardButton("✅ Local ZIP" if current == "local" else "Local ZIP", callback_data="deploy_local")],
-            [InlineKeyboardButton("✅ GitHub" if current == "github" else "GitHub", callback_data="deploy_github")],
-        ]
-        await update.message.reply_text(
-            f"📦 *Chọn chế độ deploy Agent:*\n"
-            f"Hiện tại: `{current}`\n\n"
-            f"• *local* — Lưu file .zip gửi qua Telegram\n"
-            f"• *github* — Push lên GitHub repository",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    mode = context.args[0].lower()
-    if mode in ("local", "github"):
-        state.agent_deploy_mode = mode
-        await update.message.reply_text(
-            f"✅ *Đã chuyển deploy mode!*\n\n"
-            f"📦 Mode: *{mode.upper()}*\n\n"
-            f"{'• File ZIP sẽ được gửi qua Telegram' if mode == 'local' else '• Code sẽ được push lên GitHub'}\n"
-            f"💡 Dùng `/agent <task>` để chạy.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-    else:
-        await update.message.reply_text(
-            "❌ *Chọn `local` hoặc `github`*",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-async def deploy_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-    data = query.data
-
-    if data == "deploy_local":
-        state.agent_deploy_mode = "local"
-        await query.edit_message_text(
-            "✅ *Deploy mode: LOCAL ZIP*\n\n"
-            "📦 Agent sẽ lưu code thành file .zip\n"
-            "💡 Dùng `/agent <task>` để chạy.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-    elif data == "deploy_github":
-        state.agent_deploy_mode = "github"
-        await query.edit_message_text(
-            "✅ *Deploy mode: GITHUB*\n\n"
-            "🔗 Agent sẽ push code lên GitHub\n"
-            "💡 Dùng `/agent <task>` để chạy.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-# ============================ GITHUB COMMANDS ============================
-
-async def git_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text(
-            f"🌐 *GitHub Agent Commands*\n"
-            f"{'━' * 22}\n\n"
-            f"📦 *Repository:*\n"
-            f"• `/git repo <tên> [description]` — Tạo repo mới\n"
-            f"• `/git get <owner/repo> <path>` — Đọc file\n"
-            f"• `/git list <owner/repo> [path]` — Liệt kê files\n"
-            f"• `/git commits <owner/repo>` — Xem commits\n\n"
-            f"📝 *File Operations:*\n"
-            f"• `/git push <owner/repo> <path>` — Push file (reply code)\n"
-            f"• `/git update <owner/repo> <path>` — Update file (reply code)\n"
-            f"• `/git delete <owner/repo> <path>` — Xóa file\n\n"
-            f"🌿 *Branch & PR:*\n"
-            f"• `/git branch <owner/repo> <new_branch>` — Tạo branch\n"
-            f"• `/git pr <owner/repo> <title> <head> <base>` — Tạo PR\n\n"
-            f"💡 *Mẹo:* Dùng reply để push code dài",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    subcmd = context.args[0].lower()
-
-    if subcmd == "repo":
-        await _git_repo(update, context)
-    elif subcmd == "push":
-        await _git_push(update, context)
-    elif subcmd == "get":
-        await _git_get(update, context)
-    elif subcmd == "list":
-        await _git_list(update, context)
-    elif subcmd == "branch":
-        await _git_branch(update, context)
-    elif subcmd == "pr":
-        await _git_pr(update, context)
-    elif subcmd == "delete":
-        await _git_delete(update, context)
-    elif subcmd == "commits":
-        await _git_commits(update, context)
-    elif subcmd == "update":
-        await _git_update(update, context)
-    else:
-        await update.message.reply_text(
-            f"❌ *Lệnh GitHub không hợp lệ:* `{subcmd}`\n"
-            f"Dùng `/git` để xem danh sách lệnh.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-async def _git_repo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 2:
-        await update.message.reply_text(
-            "❌ *Cú pháp:* `/git repo <tên> [description]`\n"
-            "Ví dụ: `/git repo my-project Bot AI của tôi`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    repo_name = context.args[1]
-    description = " ".join(context.args[2:]) if len(context.args) > 2 else ""
-    private = "private" in description.lower()
-    if private:
-        description = description.replace("private", "").strip()
-
-    status_msg = await update.message.reply_text(
-        f"⏳ *Đang tạo repository...*\n"
-        f"📦 `{repo_name}`",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-    try:
-        success, data = await github_agent.create_repo(repo_name, description, private)
-        if success:
-            repo_url = data.get("html_url", "")
-            clone_url = data.get("clone_url", "")
-            await status_msg.edit_text(
-                f"✅ *Repository đã tạo!*\n\n"
-                f"📦 *Tên:* `{repo_name}`\n"
-                f"🔗 *URL:* {repo_url}\n"
-                f"📥 *Clone:* `{clone_url}`\n"
-                f"🔒 *Private:* `{'Có' if private else 'Không'}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        else:
-            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
-            await status_msg.edit_text(
-                f"❌ *Lỗi tạo repo:*\n`{error[:400]}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-    except Exception as e:
-        await status_msg.edit_text(
-            f"⚠️ *Lỗi:* `{str(e)[:400]}`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-async def _git_push(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 3:
-        await update.message.reply_text(
-            "❌ *Cú pháp:* `/git push <owner/repo> <path>`\n"
-            "Reply vào tin nhắn chứa code, hoặc thêm content sau path.\n"
-            "Ví dụ: `/git push user/repo src/main.py` (reply code)",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    repo_path = context.args[1]
-    file_path = context.args[2]
-
-    if "/" not in repo_path:
-        await update.message.reply_text("❌ *Format:* `owner/repo`", parse_mode=ParseMode.MARKDOWN)
-        return
-
-    owner, repo = repo_path.split("/", 1)
-
-    content = ""
-    if update.message.reply_to_message and update.message.reply_to_message.text:
-        content = update.message.reply_to_message.text
-    elif len(context.args) > 3:
-        content = " ".join(context.args[3:])
-
-    if not content:
-        await update.message.reply_text(
-            "❌ *Thiếu nội dung file!*\n"
-            "Reply vào tin nhắn chứa code hoặc thêm content sau path.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    status_msg = await update.message.reply_text(
-        f"⏳ *Đang push file...*\n"
-        f"📁 `{file_path}` → `{repo_path}`",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-    try:
-        success, data = await github_agent.create_file(
-            owner, repo, file_path, content,
-            f"Add {file_path} via FizzPop Agent"
-        )
-        if success:
-            file_url = data.get("content", {}).get("html_url", "") if isinstance(data, dict) else ""
-            await status_msg.edit_text(
-                f"✅ *Đã push file!*\n\n"
-                f"📁 *File:* `{file_path}`\n"
-                f"📦 *Repo:* `{repo_path}`\n"
-                f"🔗 *URL:* {file_url}\n"
-                f"📊 *Size:* `{len(content)}` chars",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        else:
-            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
-            await status_msg.edit_text(
-                f"❌ *Lỗi push:*\n`{error[:400]}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-    except Exception as e:
-        await status_msg.edit_text(
-            f"⚠️ *Lỗi:* `{str(e)[:400]}`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-async def _git_get(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 3:
-        await update.message.reply_text(
-            "❌ *Cú pháp:* `/git get <owner/repo> <path>`\n"
-            "Ví dụ: `/git get octocat/Hello-World README.md`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    repo_path = context.args[1]
-    file_path = context.args[2]
-
-    if "/" not in repo_path:
-        await update.message.reply_text("❌ *Format:* `owner/repo`", parse_mode=ParseMode.MARKDOWN)
-        return
-
-    owner, repo = repo_path.split("/", 1)
-
-    status_msg = await update.message.reply_text(
-        f"⏳ *Đang lấy file...*\n"
-        f"📁 `{file_path}` from `{repo_path}`",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-    try:
-        success, data = await github_agent.get_file(owner, repo, file_path)
-        if success:
-            content_encoded = data.get("content", "") if isinstance(data, dict) else ""
-            try:
-                content = base64.b64decode(content_encoded.replace("\n", "")).decode('utf-8')
-            except:
-                content = content_encoded
-
-            size = data.get("size", len(content)) if isinstance(data, dict) else len(content)
-            sha = data.get("sha", "")[:8] if isinstance(data, dict) else ""
-
-            header = (
-                f"📄 *File Content*\n"
-                f"{'━' * 20}\n"
-                f"📁 *Path:* `{file_path}`\n"
-                f"📦 *Repo:* `{repo_path}`\n"
-                f"📊 *Size:* `{size}` bytes\n"
-                f"🔑 *SHA:* `{sha}...`\n\n"
-            )
-
-            full_text = header + f"```\n{content}\n```"
-
-            await status_msg.delete()
-            await send_long_text(update, full_text, filename=file_path.replace("/", "_"))
-        else:
-            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
-            await status_msg.edit_text(
-                f"❌ *Lỗi:*\n`{error[:400]}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-    except Exception as e:
-        await status_msg.edit_text(
-            f"⚠️ *Lỗi:* `{str(e)[:400]}`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-async def _git_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 2:
-        await update.message.reply_text(
-            "❌ *Cú pháp:* `/git list <owner/repo> [path]`\n"
-            "Ví dụ: `/git list octocat/Hello-World`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    repo_path = context.args[1]
-    path = context.args[2] if len(context.args) > 2 else ""
-
-    if "/" not in repo_path:
-        await update.message.reply_text("❌ *Format:* `owner/repo`", parse_mode=ParseMode.MARKDOWN)
-        return
-
-    owner, repo = repo_path.split("/", 1)
-
-    status_msg = await update.message.reply_text(
-        f"⏳ *Đang liệt kê files...*",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-    try:
-        success, data = await github_agent.list_files(owner, repo, path)
-        if success and isinstance(data, list):
-            msg = f"📂 *File List — `{repo_path}`*\n{'━' * 22}\n\n"
-            for item in data:
-                item_type = item.get("type", "")
-                name = item.get("name", "")
-                size = item.get("size", 0)
-                emoji = "📁" if item_type == "dir" else "📄"
-                msg += f"{emoji} `{name}`"
-                if item_type == "file":
-                    msg += f" ({size} bytes)"
-                msg += "\n"
-
-            await status_msg.edit_text(msg, parse_mode=ParseMode.MARKDOWN)
-        else:
-            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
-            await status_msg.edit_text(
-                f"❌ *Lỗi:*\n`{error[:400]}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-    except Exception as e:
-        await status_msg.edit_text(
-            f"⚠️ *Lỗi:* `{str(e)[:400]}`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-async def _git_branch(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 3:
-        await update.message.reply_text(
-            "❌ *Cú pháp:* `/git branch <owner/repo> <new_branch>`\n"
-            "Ví dụ: `/git branch user/repo feature-x`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    repo_path = context.args[1]
-    new_branch = context.args[2]
-
-    if "/" not in repo_path:
-        await update.message.reply_text("❌ *Format:* `owner/repo`", parse_mode=ParseMode.MARKDOWN)
-        return
-
-    owner, repo = repo_path.split("/", 1)
-
-    status_msg = await update.message.reply_text(
-        f"⏳ *Đang tạo branch...*\n"
-        f"🌿 `{new_branch}`",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-    try:
-        success, data = await github_agent.create_branch(owner, repo, new_branch)
-        if success:
-            await status_msg.edit_text(
-                f"✅ *Branch đã tạo!*\n\n"
-                f"🌿 `{new_branch}`\n"
-                f"📦 `{repo_path}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        else:
-            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
-            await status_msg.edit_text(
-                f"❌ *Lỗi:*\n`{error[:400]}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-    except Exception as e:
-        await status_msg.edit_text(
-            f"⚠️ *Lỗi:* `{str(e)[:400]}`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-async def _git_pr(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 5:
-        await update.message.reply_text(
-            "❌ *Cú pháp:* `/git pr <owner/repo> <title> <head> <base>`\n"
-            "Ví dụ: `/git pr user/repo Fix bug feature-x main`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    repo_path = context.args[1]
-    title = context.args[2]
-    head = context.args[3]
-    base = context.args[4]
-
-    if "/" not in repo_path:
-        await update.message.reply_text("❌ *Format:* `owner/repo`", parse_mode=ParseMode.MARKDOWN)
-        return
-
-    owner, repo = repo_path.split("/", 1)
-
-    status_msg = await update.message.reply_text(
-        f"⏳ *Đang tạo Pull Request...*",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-    try:
-        success, data = await github_agent.create_pr(owner, repo, title, head, base)
-        if success:
-            pr_url = data.get("html_url", "") if isinstance(data, dict) else ""
-            pr_num = data.get("number", "") if isinstance(data, dict) else ""
-            await status_msg.edit_text(
-                f"✅ *Pull Request đã tạo!*\n\n"
-                f"🔢 *#{pr_num}*\n"
-                f"📝 *Title:* `{title}`\n"
-                f"🌿 `{head}` → `{base}`\n"
-                f"🔗 {pr_url}",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        else:
-            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
-            await status_msg.edit_text(
-                f"❌ *Lỗi:*\n`{error[:400]}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-    except Exception as e:
-        await status_msg.edit_text(
-            f"⚠️ *Lỗi:* `{str(e)[:400]}`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-async def _git_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 3:
-        await update.message.reply_text(
-            "❌ *Cú pháp:* `/git delete <owner/repo> <path>`\n"
-            "Ví dụ: `/git delete user/repo old/file.py`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    repo_path = context.args[1]
-    file_path = context.args[2]
-
-    if "/" not in repo_path:
-        await update.message.reply_text("❌ *Format:* `owner/repo`", parse_mode=ParseMode.MARKDOWN)
-        return
-
-    owner, repo = repo_path.split("/", 1)
-
-    status_msg = await update.message.reply_text(
-        f"⏳ *Đang xóa file...*\n"
-        f"🗑 `{file_path}`",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-    try:
-        success_get, data_get = await github_agent.get_file(owner, repo, file_path)
-        if not success_get:
-            await status_msg.edit_text(
-                f"❌ *Không tìm thấy file:* `{file_path}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-
-        sha = data_get.get("sha", "") if isinstance(data_get, dict) else ""
-
-        success, data = await github_agent.delete_file(
-            owner, repo, file_path,
-            f"Delete {file_path} via FizzPop Agent",
-            sha
-        )
-        if success:
-            await status_msg.edit_text(
-                f"✅ *Đã xóa file!*\n\n"
-                f"🗑 `{file_path}`\n"
-                f"📦 `{repo_path}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        else:
-            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
-            await status_msg.edit_text(
-                f"❌ *Lỗi:*\n`{error[:400]}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-    except Exception as e:
-        await status_msg.edit_text(
-            f"⚠️ *Lỗi:* `{str(e)[:400]}`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-async def _git_commits(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 2:
-        await update.message.reply_text(
-            "❌ *Cú pháp:* `/git commits <owner/repo>`\n"
-            "Ví dụ: `/git commits octocat/Hello-World`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    repo_path = context.args[1]
-
-    if "/" not in repo_path:
-        await update.message.reply_text("❌ *Format:* `owner/repo`", parse_mode=ParseMode.MARKDOWN)
-        return
-
-    owner, repo = repo_path.split("/", 1)
-
-    status_msg = await update.message.reply_text(
-        f"⏳ *Đang lấy lịch sử commits...*",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-    try:
-        success, data = await github_agent.get_commits(owner, repo)
-        if success and isinstance(data, list):
-            msg = f"📝 *Commit History — `{repo_path}`*\n{'━' * 22}\n\n"
-            for i, commit in enumerate(data[:10], 1):
-                sha = commit.get("sha", "")[:7]
-                message = commit.get("commit", {}).get("message", "")[:50]
-                author = commit.get("commit", {}).get("author", {}).get("name", "Unknown")
-                date = commit.get("commit", {}).get("author", {}).get("date", "")[:10]
-                msg += f"{i}. `{sha}` — {message}...\n   👤 {author} 📅 {date}\n\n"
-
-            await status_msg.edit_text(msg, parse_mode=ParseMode.MARKDOWN)
-        else:
-            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
-            await status_msg.edit_text(
-                f"❌ *Lỗi:*\n`{error[:400]}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-    except Exception as e:
-        await status_msg.edit_text(
-            f"⚠️ *Lỗi:* `{str(e)[:400]}`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-async def _git_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 3:
-        await update.message.reply_text(
-            "❌ *Cú pháp:* `/git update <owner/repo> <path>`\n"
-            "Reply vào tin nhắn chứa code mới.\n"
-            "Ví dụ: `/git update user/repo src/main.py` (reply code)",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    repo_path = context.args[1]
-    file_path = context.args[2]
-
-    if "/" not in repo_path:
-        await update.message.reply_text("❌ *Format:* `owner/repo`", parse_mode=ParseMode.MARKDOWN)
-        return
-
-    owner, repo = repo_path.split("/", 1)
-
-    content = ""
-    if update.message.reply_to_message and update.message.reply_to_message.text:
-        content = update.message.reply_to_message.text
-    elif len(context.args) > 3:
-        content = " ".join(context.args[3:])
-
-    if not content:
-        await update.message.reply_text(
-            "❌ *Thiếu nội dung!* Reply code để update.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    status_msg = await update.message.reply_text(
-        f"⏳ *Đang update file...*\n"
-        f"📝 `{file_path}`",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-    try:
-        success_get, data_get = await github_agent.get_file(owner, repo, file_path)
-        if not success_get:
-            await status_msg.edit_text(
-                f"❌ *File không tồn tại:* `{file_path}`\n"
-                f"Dùng `/git push` để tạo mới.",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-
-        sha = data_get.get("sha", "") if isinstance(data_get, dict) else ""
-
-        success, data = await github_agent.update_file(
-            owner, repo, file_path, content,
-            f"Update {file_path} via FizzPop Agent",
-            sha
-        )
-        if success:
-            await status_msg.edit_text(
-                f"✅ *Đã update file!*\n\n"
-                f"📝 `{file_path}`\n"
-                f"📦 `{repo_path}`\n"
-                f"📊 *Size:* `{len(content)}` chars",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        else:
-            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
-            await status_msg.edit_text(
-                f"❌ *Lỗi:*\n`{error[:400]}`",
-                parse_mode=ParseMode.MARKDOWN
-            )
-    except Exception as e:
-        await status_msg.edit_text(
-            f"⚠️ *Lỗi:* `{str(e)[:400]}`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-# ============================ AGENT COMMAND (DUAL MODE) ============================
-
-async def agent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-
-    if not context.args:
-        current_deploy = state.agent_deploy_mode
-        keyboard = [
-            [InlineKeyboardButton("✅ Local ZIP" if current_deploy == "local" else "Local ZIP", callback_data="agentmode_local")],
-            [InlineKeyboardButton("✅ GitHub" if current_deploy == "github" else "GitHub", callback_data="agentmode_github")],
-        ]
-        await update.message.reply_text(
-            f"🤖 *Agent Mode — Tự động code & deploy*\n"
-            f"{'━' * 22}\n\n"
-            f"*Cách dùng:*\n"
-            f"`/agent <mô tả công việc>`\n\n"
-            f"*Ví dụ:*\n"
-            f"• `/agent Tạo REST API FastAPI + SQLite + JWT`\n"
-            f"• `/agent Viết bot Telegram đơn giản`\n"
-            f"• `/agent Tạo script crawl Wikipedia`\n\n"
-            f"*Deploy mode hiện tại:* `{current_deploy}`\n\n"
-            f"💡 Chọn mode bên dưới hoặc dùng `/deploy <local|github>`",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-
-    # Detect deploy mode override
-    deploy_mode = state.agent_deploy_mode
-    task_description = " ".join(context.args)
-
-    if context.args[0].lower() in ("github", "local"):
-        deploy_mode = context.args[0].lower()
-        task_description = " ".join(context.args[1:])
-
-    if not task_description.strip():
-        await update.message.reply_text(
-            "❌ *Thiếu mô tả task!*\n"
-            "Ví dụ: `/agent Tạo REST API bằng FastAPI`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    task_id = generate_task_id()
-    task = AgentTask(
-        task_id=task_id,
-        description=task_description,
-        status="running",
-        deploy_mode=deploy_mode
-    )
-    state.agent_tasks.append(task)
-
-    status_msg = await update.message.reply_text(
-        f"🤖 *Agent Task Bắt Đầu*\n"
-        f"{'━' * 22}\n\n"
-        f"🆔 *Task ID:* `{task_id}`\n"
-        f"📝 *Mô tả:* {task_description[:80]}...\n"
-        f"📦 *Deploy:* `{deploy_mode.upper()}`\n\n"
-        f"⏳ *Bước 1/5:* Phân tích yêu cầu...",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-    try:
-        session = context.bot_data.get('session')
-        if not session:
-            session = aiohttp.ClientSession()
-            context.bot_data['session'] = session
-
-        model_id = state.current_model if state.mode == "agent" else DEFAULT_AGENT_MODEL
-
-        # Step 1: Plan
-        await status_msg.edit_text(
-            f"🤖 *Agent Task Đang Chạy*\n"
-            f"{'━' * 22}\n\n"
-            f"🆔 `{task_id}`\n"
-            f"📦 Deploy: `{deploy_mode.upper()}`\n"
-            f"⏳ *Bước 1/5:* Phân tích & lập kế hoạch...",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-        plan_messages = [
-            {"role": "system", "content": AGENT_SYSTEM_PROMPT},
-            {"role": "user", "content": (
-                f"Task: {task_description}\n\n"
-                f"Hãy lập kế hoạch chi tiết:\n"
-                f"1. Cần những file nào?\n"
-                f"2. Cấu trúc project?\n"
-                f"3. Dependencies cần thiết?\n"
-                f"4. Các bước implement?\n\n"
-                f"Trả lời ngắn gọn, dạng bullet points."
-            )}
-        ]
-
-        plan_text, plan_metrics = await call_chat_api(
-            session, model_id, plan_messages, status_msg,
-            system_prompt=AGENT_SYSTEM_PROMPT, max_tokens=2048
-        )
-
-        # Step 2: Generate code
-        await status_msg.edit_text(
-            f"🤖 *Agent Task Đang Chạy*\n"
-            f"{'━' * 22}\n\n"
-            f"🆔 `{task_id}`\n"
-            f"📦 Deploy: `{deploy_mode.upper()}`\n"
-            f"⏳ *Bước 2/5:* Viết code hoàn chỉnh...",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-        code_messages = [
-            {"role": "system", "content": AGENT_SYSTEM_PROMPT},
-            {"role": "user", "content": (
-                f"Task: {task_description}\n\n"
-                f"Kế hoạch:\n{plan_text}\n\n"
-                f"VIẾT CODE HOÀN CHỈNH NGAY BÂY GIỜ. Không placeholder. Không giải thích.\n"
-                f"Mỗi file phải nằm trong markers:\n"
-                f"<<<FILE:filename.py>>>\n"
-                f"[nội dung file đầy đủ]\n"
-                f"<<<ENDFILE>>>\n\n"
-                f"BẮT BUỘC có:\n"
-                f"- main file (main.py hoặc index.js hoặc tương đương)\n"
-                f"- requirements.txt / package.json\n"
-                f"- README.md với hướng dẫn chạy\n"
-                f"- .env.example nếu cần biến môi trường\n\n"
-                f"Code phải chạy được ngay, có docstring, error handling, type hints."
-            )}
-        ]
-
-        code_text, code_metrics = await call_chat_api(
-            session, model_id, code_messages, status_msg,
-            system_prompt=AGENT_SYSTEM_PROMPT, max_tokens=MAX_OUTPUT_TOKENS
-        )
-
-        # Step 3: Parse & syntax check
-        await status_msg.edit_text(
-            f"🤖 *Agent Task Đang Chạy*\n"
-            f"{'━' * 22}\n\n"
-            f"🆔 `{task_id}`\n"
-            f"📦 Deploy: `{deploy_mode.upper()}`\n"
-            f"⏳ *Bước 3/5:* Parse files & kiểm tra syntax...",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-        files = parse_agent_files(code_text)
-
-        if not files:
-            # Retry with stronger prompt
-            retry_messages = [
-                {"role": "system", "content": AGENT_SYSTEM_PROMPT},
-                {"role": "user", "content": (
-                    f"Task: {task_description}\n\n"
-                    f"Code trước đó không parse được. Hãy viết LẠI với format CHÍNH XÁC:\n\n"
-                    f"<<<FILE:main.py>>>\n"
-                    f"import os\n"
-                    f"def main():\n"
-                    f"    pass\n"
-                    f"<<<ENDFILE>>>\n\n"
-                    f"Viết TẤT CẢ các file cần thiết theo format trên."
-                )}
-            ]
-
-            code_text, code_metrics = await call_chat_api(
-                session, model_id, retry_messages, status_msg,
-                system_prompt=AGENT_SYSTEM_PROMPT, max_tokens=MAX_OUTPUT_TOKENS
-            )
-            files = parse_agent_files(code_text)
-
-        # Syntax check
-        syntax_issues = []
-        for fname, fcontent in files.items():
-            if fname.endswith('.py'):
-                try:
-                    compile(fcontent, fname, 'exec')
-                except SyntaxError as e:
-                    syntax_issues.append(f"{fname}: Line {e.lineno}: {e.msg}")
-
-        # Step 4: Auto-fix if needed
-        if syntax_issues:
-            await status_msg.edit_text(
-                f"🤖 *Agent Task Đang Chạy*\n"
-                f"{'━' * 22}\n\n"
-                f"🆔 `{task_id}`\n"
-                f"📦 Deploy: `{deploy_mode.upper()}`\n"
-                f"⚠️ *Phát hiện {len(syntax_issues)} lỗi syntax*\n"
-                f"⏳ *Bước 3.5/5:* Tự động sửa lỗi...",
-                parse_mode=ParseMode.MARKDOWN
-            )
-
-            fix_messages = [
-                {"role": "system", "content": AGENT_SYSTEM_PROMPT},
-                {"role": "user", "content": (
-                    f"Code có lỗi syntax:\n\n"
-                    f"{'\n'.join(syntax_issues)}\n\n"
-                    f"Hãy sửa lại TẤT CẢ file. Giữ nguyên format <<<FILE:>>> <<<ENDFILE>>>.\n"
-                    f"Chỉ trả về code đã sửa, không giải thích."
-                )}
-            ]
-
-            fixed_code, _ = await call_chat_api(
-                session, model_id, fix_messages, status_msg,
-                system_prompt=AGENT_SYSTEM_PROMPT, max_tokens=MAX_OUTPUT_TOKENS
-            )
-
-            files = parse_agent_files(fixed_code)
-
-            # Re-check
-            syntax_issues = []
-            for fname, fcontent in files.items():
-                if fname.endswith('.py'):
-                    try:
-                        compile(fcontent, fname, 'exec')
-                    except SyntaxError as e:
-                        syntax_issues.append(f"{fname}: Line {e.lineno}: {e.msg}")
-
-        # Step 5: Deploy
-        await status_msg.edit_text(
-            f"🤖 *Agent Task Đang Chạy*\n"
-            f"{'━' * 22}\n\n"
-            f"🆔 `{task_id}`\n"
-            f"📦 Deploy: `{deploy_mode.upper()}`\n"
-            f"⏳ *Bước 4/5:* Đang deploy...",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-        if deploy_mode == "github":
-            await _deploy_github(update, context, state, task, files, status_msg, plan_text, code_metrics, syntax_issues)
-        else:
-            await _deploy_local(update, context, state, task, files, status_msg, plan_text, code_metrics, syntax_issues)
-
-    except Exception as e:
-        task.status = "failed"
-        task.error = str(e)
-        task.completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        state.stats.tasks_failed += 1
-
-        error_trace = traceback.format_exc()
-        logger.error(f"Agent task failed: {e}\n{error_trace}")
-
-        await status_msg.edit_text(
-            f"❌ *Agent Task Thất Bại*\n"
-            f"{'━' * 22}\n\n"
-            f"🆔 `{task_id}`\n"
-            f"⚠️ *Lỗi:* `{str(e)[:300]}`\n\n"
-            f"💡 *Thử:*\n"
-            f"• Đơn giản hóa yêu cầu\n"
-            f"• Thử lại với `/agent local <task>`\n"
-            f"• Kiểm tra GitHub token nếu dùng github mode\n\n"
-            f"🧠 AI đã ghi nhận lỗi này.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-        await agent_self_reflect(task, state)
-
-async def _deploy_local(update, context, state, task, files, status_msg, plan_text, code_metrics, syntax_issues):
-    """Deploy agent task as local ZIP file."""
-    try:
-        zip_path = await save_agent_local(task.task_id, files)
-        task.local_path = str(zip_path)
-        task.status = "completed"
-        task.completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        task.files_created = list(files.keys())
-        state.stats.tasks_completed += 1
-
-        # Build success message
-        file_list = "\n".join([f"• `{f}` ({len(c)} chars)" for f, c in files.items()])
-        syntax_status = "✅ Tất cả file Python hợp lệ" if not syntax_issues else "\n".join([f"⚠️ {i}" for i in syntax_issues[:3]])
-
-        result_msg = (
-            f"✅ *Agent Task Hoàn Thành!*\n"
-            f"{'━' * 22}\n\n"
-            f"🆔 *Task ID:* `{task.task_id}`\n"
-            f"📝 *Mô tả:* {task.description[:80]}...\n"
-            f"📦 *Deploy:* LOCAL ZIP\n\n"
-            f"📁 *Files ({len(files)}):*\n"
-            f"{file_list}\n\n"
-            f"🔍 *Syntax Check:*\n"
-            f"{syntax_status}\n\n"
-            f"📊 *AI Metrics:*\n"
-            f"• ⏱ Latency: `{code_metrics.get('latency', 0):.2f}s`\n"
-            f"• 📝 Output: `{code_metrics.get('output_tokens', 0)}` tokens\n\n"
-            f"📎 File ZIP đính kèm bên dưới 👇"
-        )
-
-        await status_msg.edit_text(result_msg, parse_mode=ParseMode.MARKDOWN)
-
-        # Send ZIP file
-        with open(zip_path, 'rb') as f:
-            zip_bio = io.BytesIO(f.read())
-        zip_bio.name = f"{task.task_id}.zip"
-
-        await update.message.reply_document(
-            document=zip_bio,
-            caption=f"📦 Agent Output — {len(files)} files"
-        )
-
-        # Also send code preview as text file
-        preview_text = f"# {task.description}\n# Task ID: {task.task_id}\n# Deploy: LOCAL\n\n"
-        preview_text += f"## Plan\n{plan_text}\n\n"
-        preview_text += f"## Files\n\n"
-        for fname, fcontent in files.items():
-            preview_text += f"\n{'='*60}\n# FILE: {fname}\n{'='*60}\n\n{fcontent}\n"
-
-        preview_bio = io.BytesIO(preview_text.encode('utf-8'))
-        preview_bio.name = f"{task.task_id}_preview.txt"
-        await update.message.reply_document(
-            document=preview_bio,
-            caption=f"📄 Full code preview"
-        )
-
-        # Self-reflection
-        reflection = await agent_self_reflect(task, state)
-        await update.message.reply_text(reflection, parse_mode=ParseMode.MARKDOWN)
-
-    except Exception as e:
-        raise e
-
-async def _deploy_github(update, context, state, task, files, status_msg, plan_text, code_metrics, syntax_issues):
-    """Deploy agent task to GitHub repository."""
-    try:
-        # Get GitHub user
-        success_user, user_data = await github_agent.get_user()
-        if not success_user:
-            raise Exception("GitHub token không hợp lệ (Bad credentials). Hãy dùng `/deploy local` hoặc cập nhật token.")
-
-        github_username = user_data.get("login", "")
-        state.github_username = github_username
-
-        # Smart repo name
-        repo_name = smart_repo_name(task.description)
-
-        # Create repo
-        success_repo, repo_data = await github_agent.create_repo(
-            repo_name,
-            f"Auto-generated by FizzPop Agent: {task.description[:100]}",
-            private=False
-        )
-
-        if not success_repo:
-            error_msg = repo_data.get("message", str(repo_data)) if isinstance(repo_data, dict) else str(repo_data)
-            if "already exists" in error_msg.lower():
-                # Use existing repo
-                pass
-            else:
-                raise Exception(f"Lỗi tạo repo: {error_msg}")
-
-        repo_full = f"{github_username}/{repo_name}"
-        task.repo_url = f"https://github.com/{repo_full}"
-
-        # Push all files
-        pushed_files = []
-        for fname, fcontent in files.items():
-            success_push, _ = await github_agent.create_file(
-                github_username, repo_name, fname, fcontent,
-                f"Add {fname} via FizzPop Agent"
-            )
-            if success_push:
-                pushed_files.append(fname)
-            await asyncio.sleep(0.5)
-
-        task.status = "completed"
-        task.completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        task.files_created = pushed_files
-        state.stats.tasks_completed += 1
-
-        file_list = "\n".join([f"• `{f}`" for f in pushed_files])
-        syntax_status = "✅ Tất cả file Python hợp lệ" if not syntax_issues else "\n".join([f"⚠️ {i}" for i in syntax_issues[:3]])
-
-        result_msg = (
-            f"✅ *Agent Task Hoàn Thành!*\n"
-            f"{'━' * 22}\n\n"
-            f"🆔 *Task ID:* `{task.task_id}`\n"
-            f"📝 *Mô tả:* {task.description[:80]}...\n"
-            f"🔗 *Deploy:* GITHUB\n\n"
-            f"📦 *Repository:*\n"
-            f"[{repo_full}](https://github.com/{repo_full})\n\n"
-            f"📁 *Files đã push ({len(pushed_files)}):*\n"
-            f"{file_list}\n\n"
-            f"🔍 *Syntax Check:*\n"
-            f"{syntax_status}\n\n"
-            f"📊 *AI Metrics:*\n"
-            f"• ⏱ Latency: `{code_metrics.get('latency', 0):.2f}s`\n"
-            f"• 📝 Output: `{code_metrics.get('output_tokens', 0)}` tokens"
-        )
-
-        await status_msg.edit_text(result_msg, parse_mode=ParseMode.MARKDOWN)
-
-        # Send code preview as file too
-        preview_text = f"# {task.description}\n# Repo: https://github.com/{repo_full}\n# Task ID: {task.task_id}\n\n"
-        preview_text += f"## Plan\n{plan_text}\n\n"
-        preview_text += f"## Files\n\n"
-        for fname, fcontent in files.items():
-            preview_text += f"\n{'='*60}\n# FILE: {fname}\n{'='*60}\n\n{fcontent}\n"
-
-        preview_bio = io.BytesIO(preview_text.encode('utf-8'))
-        preview_bio.name = f"{task.task_id}_preview.txt"
-        await update.message.reply_document(
-            document=preview_bio,
-            caption=f"📄 Full code preview"
-        )
-
-        # Self-reflection
-        reflection = await agent_self_reflect(task, state)
-        await update.message.reply_text(reflection, parse_mode=ParseMode.MARKDOWN)
-
-    except Exception as e:
-        raise e
-
-async def agent_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-    data = query.data
-
-    if data == "agentmode_local":
-        state.agent_deploy_mode = "local"
-        await query.edit_message_text(
-            "✅ *Agent deploy mode: LOCAL ZIP*\n\n"
-            "📦 Agent sẽ lưu code thành file .zip\n"
-            "💡 Dùng `/agent <mô tả>` để chạy.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-    elif data == "agentmode_github":
-        state.agent_deploy_mode = "github"
-        await query.edit_message_text(
-            "✅ *Agent deploy mode: GITHUB*\n\n"
-            "🔗 Agent sẽ push code lên GitHub\n"
-            "💡 Dùng `/agent <mô tả>` để chạy.",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-# ============================ MAIN MESSAGE HANDLER ============================
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
-
-    user_id = update.effective_user.id
-    user_input = update.message.text.strip()
-    state = get_user_state(user_id)
-
-    if not user_input:
-        return
-
-    mode = state.mode
-    model_id = state.current_model
-    mode_name = MODE_CONFIG[mode]["name"]
-
-    # Validate model exists in current mode
-    valid_models = [m[1] for m in MODE_CONFIG[mode]["models"]]
-    if model_id not in valid_models:
-        model_id = MODE_CONFIG[mode]["default"]
-        state.current_model = model_id
-
-    status_msg = await update.message.reply_text(
-        f"⏳ *Đang khởi tạo...*\n"
-        f"🔄 Mode: {mode_name}\n"
-        f"🤖 Model: `{model_id}`",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-    await context.bot.send_chat_action(
-        chat_id=update.effective_chat.id,
-        action=ChatAction.TYPING
-    )
-
-    session = context.bot_data.get('session')
-    if not session:
-        session = aiohttp.ClientSession()
-        context.bot_data['session'] = session
-
-    try:
-        if mode == "chat":
-            await _handle_chat(update, context, state, model_id, user_input, status_msg, session)
-        elif mode == "agent":
-            await _handle_agent_chat(update, context, state, model_id, user_input, status_msg, session)
-        elif mode == "embed":
-            await _handle_embed(update, context, state, model_id, user_input, status_msg, session)
-        elif mode == "tts":
-            await _handle_tts(update, context, state, model_id, user_input, status_msg, session)
-
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        error_msg = (
-            f"⚠️ *Lỗi xử lý*\n"
-            f"{'━' * 15}\n"
-            f"`{str(e)[:400]}`\n\n"
-            f"💡 *Thử:* `/reset` hoặc đổi model/mode"
-        )
-        try:
-            await status_msg.edit_text(error_msg, parse_mode=ParseMode.MARKDOWN)
-        except Exception:
-            await update.message.reply_text(error_msg, parse_mode=ParseMode.MARKDOWN)
-
-        state.last_error = str(e)
-        state.self_notes.append(f"Error in {mode} mode: {str(e)[:200]}")
-
-async def _handle_chat(update, context, state, model_id, user_input, status_msg, session):
-    state.history.append({"role": "user", "content": user_input})
-    if len(state.history) > MAX_HISTORY * 2:
-        state.history = state.history[-(MAX_HISTORY * 2):]
-
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + state.history
-
-    ai_response, metrics = await call_chat_api(session, model_id, messages, status_msg)
-
-    state.history.append({"role": "assistant", "content": ai_response})
-    if len(state.history) > MAX_HISTORY * 2:
-        state.history = state.history[-(MAX_HISTORY * 2):]
-
-    model_disp = get_model_display("chat", model_id)
-    header = f"🤖 *{model_disp}*\n{'━' * 20}\n\n"
-    footer = build_metrics_footer(metrics, state)
-    full_text = header + ai_response + footer
-
-    try:
-        await status_msg.delete()
-    except Exception:
-        pass
-
-    await send_long_text(update, full_text, filename="ai_response.txt")
-
-async def _handle_agent_chat(update, context, state, model_id, user_input, status_msg, session):
-    """Agent mode: AI acts as coding assistant with GitHub context."""
-    state.history.append({"role": "user", "content": user_input})
-    if len(state.history) > MAX_HISTORY * 2:
-        state.history = state.history[-(MAX_HISTORY * 2):]
-
-    agent_context = AGENT_SYSTEM_PROMPT
-    if state.github_username:
-        agent_context += f"\n\nGitHub user: {state.github_username}"
-    if state.self_notes:
-        agent_context += "\n\nLessons learned:\n" + "\n".join(state.self_notes[-5:])
-
-    messages = [{"role": "system", "content": agent_context}] + state.history
-
-    ai_response, metrics = await call_chat_api(
-        session, model_id, messages, status_msg,
-        system_prompt=agent_context, max_tokens=MAX_OUTPUT_TOKENS
-    )
-
-    state.history.append({"role": "assistant", "content": ai_response})
-    if len(state.history) > MAX_HISTORY * 2:
-        state.history = state.history[-(MAX_HISTORY * 2):]
-
-    model_disp = get_model_display("agent", model_id)
-    header = f"🤖 *{model_disp}* [AGENT MODE]\n{'━' * 20}\n\n"
-    footer = build_metrics_footer(metrics, state)
-    full_text = header + ai_response + footer
-
-    try:
-        await status_msg.delete()
-    except Exception:
-        pass
-
-    await send_long_text(update, full_text, filename="agent_response.txt")
-
-async def _handle_embed(update, context, state, model_id, user_input, status_msg, session):
-    content, metrics, full_vector = await call_embed_api(session, model_id, user_input, status_msg)
-
-    footer = build_metrics_footer(metrics, state)
-    full_text = content + footer
-
-    try:
-        await status_msg.delete()
-    except Exception:
-        pass
-
-    try:
-        await update.message.reply_text(full_text, parse_mode=ParseMode.MARKDOWN)
-    except Exception:
-        await update.message.reply_text(full_text)
-
-    vector_bio = io.BytesIO(full_vector.encode('utf-8'))
-    vector_bio.name = f"embedding_{model_id.replace('/', '_')}.json"
-    await update.message.reply_document(
-        document=vector_bio,
-        caption=f"📄 Full embedding vector"
-    )
-
-async def _handle_tts(update, context, state, model_id, user_input, status_msg, session):
-    audio_bytes, metrics = await call_tts_api(session, model_id, user_input, status_msg)
-
-    footer_metrics = build_metrics_footer(metrics, state)
-
-    try:
-        await status_msg.delete()
-    except Exception:
-        pass
-
-    audio_bio = io.BytesIO(audio_bytes)
-    audio_bio.name = f"tts_{model_id.replace('/', '_')}.mp3"
-
-    model_disp = get_model_display("tts", model_id)
-    caption = (
-        f"🔊 *Text-to-Speech*\n"
-        f"🤖 Model: {model_disp}\n"
-        f"📝 Length: `{len(user_input)}` chars\n"
-        f"📦 Size: `{len(audio_bytes)}` bytes"
-    ) + footer_metrics
-
-    await update.message.reply_voice(
-        voice=audio_bio,
-        caption=caption,
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-# ============================ ERROR HANDLER ============================
-
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Update {update} caused error {context.error}")
-
-    if update and update.effective_user:
-        state = get_user_state(update.effective_user.id)
-        error_str = str(context.error)[:300]
-        state.last_error = error_str
-        state.self_notes.append(f"System error: {error_str}")
-
-    if update and update.effective_message:
-        await update.effective_message.reply_text(
-            "😵 *Đã xảy ra lỗi không mong muốn!*\n"
-            "Vui lòng thử lại sau.\n\n"
-            "💡 *Thử:* `/reset` hoặc `/help`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-
-# ============================ MAIN ============================
-
-async def post_init(application: Application):
-    application.bot_data['session'] = aiohttp.ClientSession()
-    await github_agent.init_session()
-    logger.info("Bot initialized. Sessions created.")
-
-async def post_shutdown(application: Application):
-    session = application.bot_data.get('session')
-    if session:
-        await session.close()
-    await github_agent.close()
-    logger.info("All sessions closed.")
+# ============================================================================
+# 🔄 CLEANUP & SHUTDOWN
+# ============================================================================
+
+async def periodic_cleanup():
+    """Background task to cleanup old files."""
+    while True:
+        await asyncio.sleep(3600)  # Every hour
+        state_store.cleanup_old_tasks(Config.ZIP_RETENTION_HOURS)
+        # Clean old ZIPs
+        cutoff = time.time() - Config.ZIP_RETENTION_HOURS * 3600
+        for zip_file in Config.WORK_DIR.glob("*.zip"):
+            if zip_file.stat().st_mtime < cutoff:
+                zip_file.unlink()
+                logging.debug(f"🗑️ Cleaned: {zip_file.name}")
+
+# ============================================================================
+# 🚀 MAIN ENTRY POINT
+# ============================================================================
 
 def main():
-    logger.info("Starting FizzPop AI Agent Bot v5.0...")
-
-    application = (
+    """Main entry — all in one file!"""
+    Config.init()
+    logging.info("🚀 Starting FizzPop AI Agent Bot v7.0 (Single-File Edition)")
+    
+    # Create app
+    app = (
         ApplicationBuilder()
-        .token(TELEGRAM_BOT_TOKEN)
-        .post_init(post_init)
-        .post_shutdown(post_shutdown)
+        .token(Config.BOT_TOKEN)
         .concurrent_updates(True)
+        .get_updates_read_timeout(Config.API_TIMEOUT)
         .build()
     )
-
-    # Core commands
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('help', help_command))
-    application.add_handler(CommandHandler('models', show_models))
-    application.add_handler(CommandHandler('switch', switch_model_command))
-    application.add_handler(CommandHandler('mode', mode_command))
-    application.add_handler(CommandHandler('reset', reset_chat))
-    application.add_handler(CommandHandler('status', status_command))
-    application.add_handler(CommandHandler('stats', stats_command))
-
-    # Agent commands
-    application.add_handler(CommandHandler('agent', agent_command))
-    application.add_handler(CommandHandler('git', git_command))
-    application.add_handler(CommandHandler('analyze', analyze_command))
-    application.add_handler(CommandHandler('tasks', tasks_command))
-    application.add_handler(CommandHandler('learn', learn_command))
-    application.add_handler(CommandHandler('deploy', deploy_mode_command))
-
+    
+    # Register handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", lambda u, c: send_with_fallback(u, HELP_TEXT)))
+    app.add_handler(CommandHandler("models", show_models))
+    app.add_handler(CommandHandler("agent", agent_command))
+    app.add_handler(CommandHandler("stats", lambda u, c: _send_stats(u, get_user_state(u.effective_user.id))))
+    app.add_handler(CommandHandler("reset", lambda u, c: _handle_reset(u, get_user_state(u.effective_user.id))))
+    
     # Callbacks
-    application.add_handler(CallbackQueryHandler(model_callback, pattern="^model_"))
-    application.add_handler(CallbackQueryHandler(model_callback, pattern="^refresh_models$"))
-    application.add_handler(CallbackQueryHandler(mode_callback, pattern="^setmode_"))
-    application.add_handler(CallbackQueryHandler(deploy_mode_callback, pattern="^deploymode_"))
-    application.add_handler(CallbackQueryHandler(agent_mode_callback, pattern="^agentmode_"))
-
+    app.add_handler(CallbackQueryHandler(model_callback))
+    
     # Messages
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
-    )
-
-    # Errors
-    application.add_error_handler(error_handler)
-
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Error handler
+    async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        logging.error(f"Update {update} caused error: {context.error}")
+        if update and update.effective_message:
+            await update.effective_message.reply_text("⚠️ Có lỗi xảy ra. Thử lại hoặc /reset.")
+    
+    app.add_error_handler(error_handler)
+    
+    # Post-init: start cleanup task
+    async def post_init(app: Application):
+        app.bot_data['ai_client'] = ai_client
+        app.bot_data['github'] = github
+        asyncio.create_task(periodic_cleanup())
+        logging.info("✅ Bot initialized")
+    
+    app.post_init = post_init
+    
+    # Post-shutdown: cleanup
+    async def post_shutdown(app: Application):
+        await ai_client.close()
+        await github.close()
+        await state_store.save_all()
+        logging.info("🔒 Bot shutdown complete")
+    
+    app.post_shutdown = post_shutdown
+    
     # Run
-    application.run_polling(drop_pending_updates=True)
+    logging.info("✅ Bot is running. Press Ctrl+C to stop.")
+    app.run_polling(drop_pending_updates=True)
+
+# Help text constant
+HELP_TEXT = """📖 *Hướng Dẫn FizzPop v7.0*
+━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 *Lệnh chính:*
+• `/start` — Chào mừng + menu nhanh
+• `/models` — Chọn model với nút bấm
+• `/agent <task>` — Chạy agent tự động
+• `/stats` — Xem thống kê sử dụng
+• `/reset` — Xóa lịch sử chat
+• `/help` — Hiển thị hướng dẫn này
+
+⚙️ *Tùy chỉnh:*
+• `/style concise` — Trả lời ngắn gọn
+• `/style verbose` — Giải thích chi tiết
+• `/auto on|off` — Bật/tắt auto model selection
+
+🤖 *Agent Mode:*
+• `/agent Tạo API FastAPI` — Code + local ZIP
+• `/agent github Viết bot Telegram` — Code + push GitHub
+• Auto-retry nếu lỗi, auto-fix syntax
+
+💡 *Mẹo thông minh:*
+• Bot tự chọn model phù hợp (bật bằng `/auto on`)
+• Context tự nén khi dài quá
+• Học từ lỗi để cải thiện lần sau
+• Streaming response: thấy chữ hiện dần
+
+🔧 *Troubleshooting:*
+• Lỗi timeout? → Thử model khác hoặc /reset
+• Code không parse? → Dùng `/agent local` để nhận file
+• GitHub lỗi? → Kiểm tra token hoặc dùng local mode
+
+📦 *Output:*
+• Code dài → tự động gửi file .txt
+• Agent task → gửi file .zip + README
+• Metrics hiển thị: latency, tokens, model dùng
+
+━━━━━━━━
+🤖 FizzPop v7.0 — Single-File Power ✨"""
+
+def _handle_reset(update: Update, state: ConversationState):
+    """Handle reset command."""
+    state.history = []
+    state.agent_tasks = state.agent_tasks[-5:]  # Keep last 5 tasks
+    return update.message.reply_text("🗑️ *Đã reset!*\n\nLịch sử chat đã xóa. Tasks cũ giữ lại 5 cái gần nhất.", parse_mode=TPM.MARKDOWN)
 
 if __name__ == '__main__':
     main()
