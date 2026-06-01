@@ -1665,7 +1665,7 @@ async def _send_stats(update: Update, state: ConversationState):
 {chr(10).join(f"• `{m}`: {c}x" for m, c in sorted(s.models_used.items(), key=lambda x:-x[1])[:5])}
 
 📅 First: `{s.first_seen[:10]}`
-🕐 Last: `{s.last_active[:16]}`}
+🕐 Last: `{s.last_active[:16]}`
 
 💡 Tip: Use `/reset` to clear history if context gets confused."""
     
