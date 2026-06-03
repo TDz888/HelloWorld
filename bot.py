@@ -5,6 +5,7 @@
 ║         🤖 DENIA BOT v7.0 — PRODUCTION AI AGENT PLATFORM         ║
 ║     Robust · Modular · Self-Healing · 25 Real-World Features     ║
 ╚══════════════════════════════════════════════════════════════════╝
+⚠️  TOKEN ĐÃ ĐƯỢC HARDCODE — CHỈ DÙNG CHO MÁY CÁ NHÂN, KHÔNG PUSH GITHUB
 """
 
 import asyncio
@@ -39,12 +40,12 @@ from telegram.ext import (
 from telegram.constants import ParseMode, ChatAction
 
 # ═════════════════════════════════════════════════════════════════
-# CONFIGURATION & SECURITY
+# CONFIGURATION — TOKEN HARDCODED (CHỈ DÙNG LOCAL)
 # ═════════════════════════════════════════════════════════════════
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-API_KEY = os.getenv("API_KEY", "")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+TELEGRAM_BOT_TOKEN = "8909561772:AAGQgxrbvXbi-RACF4_Z7iiS4R7NA6Za6wU"
+API_KEY = "sk-e317a237354192e26f99951f06e4882779e8a0e08e86d2f71242e8ff770bdf24"
+GITHUB_TOKEN = "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"
 
 API_BASE = "https://ckey.vn/v1"
 API_CHAT_URL = f"{API_BASE}/chat/completions"
@@ -67,24 +68,20 @@ class ModelInfo:
     id: str
     name: str
     category: str
-    tier: str  # free, low, mid, high, ultra
-    inp_price: float  # VND per 1M tokens
+    tier: str
+    inp_price: float
     out_price: float
     max_tokens: int = 8192
     supports_vision: bool = False
     supports_tools: bool = False
 
-# Strict model registry - only verified working models
 MODEL_REGISTRY: Dict[str, ModelInfo] = {
-    # FREE TIER
     "glm-4.7": ModelInfo("glm-4.7", "GLM 4.7", "GLM", "free", 1, 1),
     "mistral-small-4-119b": ModelInfo("mistral-small-4-119b", "Mistral Small", "Mistral", "free", 1, 1),
     "qwen3-coder-480b": ModelInfo("qwen3-coder-480b", "Qwen3 Coder", "Qwen", "free", 1, 1),
     "gemini-embedding-001": ModelInfo("gemini-embedding-001", "Gemini Embed", "Embed", "free", 1, 1, 2048),
     "text-embedding-3-small": ModelInfo("text-embedding-3-small", "Text Embed 3", "Embed", "free", 1, 1, 2048),
     "google-tts/vi": ModelInfo("google-tts/vi", "Google TTS VI", "TTS", "free", 0, 0, 4096),
-
-    # LOW COST
     "qwen3-coder-next": ModelInfo("qwen3-coder-next", "Qwen3 Next", "Qwen", "low", 60, 320),
     "deepseek-3.2": ModelInfo("deepseek-3.2", "DeepSeek 3.2", "DeepSeek", "low", 112, 168),
     "deepseek-r1-distill-qwen-32b": ModelInfo("deepseek-r1-distill", "DeepSeek R1 Distill", "DeepSeek", "low", 120, 120),
@@ -93,19 +90,13 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
     "deepseek-v4-flash": ModelInfo("deepseek-v4-flash", "DeepSeek V4 Flash", "DeepSeek", "low", 322, 644),
     "gpt-5.4-mini": ModelInfo("gpt-5.4-mini", "GPT 5.4 Mini", "GPT", "low", 400, 2400),
     "claude-haiku-4.5": ModelInfo("claude-haiku-4.5", "Claude Haiku", "Claude", "low", 600, 3000),
-
-    # MID COST
     "gpt-5.4": ModelInfo("gpt-5.4", "GPT 5.4", "GPT", "mid", 1000, 8000),
     "deepseek-v4-pro": ModelInfo("deepseek-v4-pro", "DeepSeek V4 Pro", "DeepSeek", "mid", 1000, 5000),
     "claude-sonnet-4.6": ModelInfo("claude-sonnet-4.6", "Claude Sonnet 4.6", "Claude", "mid", 1800, 9000),
     "grok-4.3": ModelInfo("grok-4.3", "Grok 4.3", "Grok", "mid", 750, 1500),
-
-    # HIGH COST
     "claude-opus-4.6": ModelInfo("claude-opus-4.6", "Claude Opus 4.6", "Claude", "high", 3000, 15000),
     "claude-opus-4.7": ModelInfo("claude-opus-4.7", "Claude Opus 4.7", "Claude", "high", 4000, 20000),
     "gpt-5.5": ModelInfo("gpt-5.5", "GPT 5.5", "GPT", "high", 2000, 12000),
-
-    # VISION
     "gpt-5.4-vision": ModelInfo("gpt-5.4", "GPT 5.4 Vision", "Vision", "mid", 1000, 8000, 4096, True),
     "claude-sonnet-4.6-vision": ModelInfo("claude-sonnet-4.6", "Claude Vision", "Vision", "mid", 1800, 9000, 4096, True),
 }
@@ -113,7 +104,6 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
 TIER_EMOJI = {"free": "💚", "low": "💙", "mid": "💛", "high": "🧡", "ultra": "❤️"}
 CATEGORY_EMOJI = {"GPT": "🟢", "Claude": "🟣", "DeepSeek": "⚫", "Qwen": "🟠", "Kimi": "🟦", "GLM": "🟡", "Mistral": "⚪", "Grok": "🟩", "Embed": "📊", "TTS": "🔊", "Vision": "👁"}
 
-# Mode configuration with strict model validation
 MODE_CONFIG = {
     "chat": {
         "name": "💬 Chat",
@@ -125,22 +115,7 @@ MODE_CONFIG = {
         "name": "🤖 Agent",
         "models": ["deepseek-v4-pro", "claude-sonnet-4.6", "gpt-5.4", "claude-opus-4.6", "gpt-5.5"],
         "default": "claude-sonnet-4.6",
-        "system": "You are Denia Agent — an autonomous software engineering agent. Your mission: complete coding tasks end-to-end.
-
-WORKFLOW:
-1. Analyze requirements thoroughly
-2. Plan architecture and file structure
-3. Write complete, production-ready, documented code
-4. Include error handling, type hints, docstrings
-5. Generate tests and README
-6. Use conventional commits
-
-RULES:
-- Always provide COMPLETE runnable code
-- No placeholders, no TODOs without implementation
-- Use environment variables for secrets
-- Include requirements.txt / package.json
-- Write modular, testable code"
+        "system": "You are Denia Agent — an autonomous software engineering agent. Your mission: complete coding tasks end-to-end.\n\nWORKFLOW:\n1. Analyze requirements thoroughly\n2. Plan architecture and file structure\n3. Write complete, production-ready, documented code\n4. Include error handling, type hints, docstrings\n5. Generate tests and README\n6. Use conventional commits\n\nRULES:\n- Always provide COMPLETE runnable code\n- No placeholders, no TODOs without implementation\n- Use environment variables for secrets\n- Include requirements.txt / package.json\n- Write modular, testable code"
     },
     "coder": {
         "name": "💻 Coder",
@@ -152,20 +127,7 @@ RULES:
         "name": "📚 Lesson",
         "models": ["deepseek-3.2", "kimi-k2.5", "deepseek-v4-pro", "claude-sonnet-4.6", "gpt-5.4"],
         "default": "claude-sonnet-4.6",
-        "system": "You are Denia Teacher — an expert programming instructor.
-
-LESSON FORMAT (9 sections):
-1. NHẮC LẠI: Review previous concepts
-2. NỘI DUNG MỚI: Introduce topic clearly
-3. CẤU TRÚC: Outline learning path
-4. THUẬT NGỮ: Define technical terms
-5. CODE CHỦ ĐẠO: Complete runnable example
-6. GIẢI THÍCH: Line-by-line code walkthrough
-7. CHỐT LẠI: 3-5 key takeaways
-8. 3 CÂU HỎI: Test understanding (answers hidden)
-9. LEETCODE MINI: Small coding challenge
-
-Use Vietnamese for explanations, English for code."
+        "system": "You are Denia Teacher — an expert programming instructor.\n\nLESSON FORMAT (9 sections):\n1. NHẮC LẠI: Review previous concepts\n2. NỘI DUNG MỚI: Introduce topic clearly\n3. CẤU TRÚC: Outline learning path\n4. THUẬT NGỮ: Define technical terms\n5. CODE CHỦ ĐẠO: Complete runnable example\n6. GIẢI THÍCH: Line-by-line code walkthrough\n7. CHỐT LẠI: 3-5 key takeaways\n8. 3 CÂU HỎI: Test understanding (answers hidden)\n9. LEETCODE MINI: Small coding challenge\n\nUse Vietnamese for explanations, English for code."
     },
     "vision": {
         "name": "👁 Vision",
@@ -186,10 +148,6 @@ Use Vietnamese for explanations, English for code."
         "system": "TTS mode"
     }
 }
-
-# ═════════════════════════════════════════════════════════════════
-# SYSTEM PROMPTS
-# ═════════════════════════════════════════════════════════════════
 
 AGENT_WORKFLOW = """AUTONOMOUS AGENT WORKFLOW:
 Step 1: REQUIREMENTS — Parse user intent, identify edge cases
@@ -235,6 +193,7 @@ class UserStats:
     lessons_completed: int = 0
     leetcode_solved: int = 0
     code_executed: int = 0
+    files_processed: int = 0
     first_seen: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     last_active: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
@@ -305,7 +264,6 @@ class ConversationState:
 # ═════════════════════════════════════════════════════════════════
 
 user_states: Dict[int, ConversationState] = {}
-scheduled_jobs: List[Dict] = []
 
 def _load_state():
     global user_states
@@ -335,7 +293,6 @@ def _load_state():
                     state.kb = [KnowledgeDoc(**d) for d in sdata["kb"]]
                 if "tasks" in sdata:
                     state.tasks = [AgentTask(**t) for t in sdata["tasks"]]
-                # Validate model
                 if state.model not in MODEL_REGISTRY:
                     state.model = MODE_CONFIG[state.mode]["default"]
                 user_states[uid] = state
@@ -373,7 +330,6 @@ def gen_id(prefix: str) -> str:
     return f"{prefix}_{int(time.time())}_{uuid.uuid4().hex[:6]}"
 
 def validate_model(model_id: str, mode: str) -> Tuple[bool, str]:
-    """Strict model validation with fallback suggestion"""
     if model_id not in MODEL_REGISTRY:
         return False, f"Model `{model_id}` không tồn tại. Dùng /models để xem danh sách."
     info = MODEL_REGISTRY[model_id]
@@ -466,7 +422,7 @@ async def send_long(update: Update, text: str, filename: str = "response.txt", c
     await update.message.reply_document(document=bio, caption=cap)
 
 # ═════════════════════════════════════════════════════════════════
-# GITHUB API CLIENT (Robust)
+# GITHUB API CLIENT
 # ═════════════════════════════════════════════════════════════════
 
 class GitHubClient:
@@ -586,7 +542,7 @@ class GitHubClient:
 gh_client = GitHubClient(GITHUB_TOKEN)
 
 # ═════════════════════════════════════════════════════════════════
-# AI API CLIENT (Robust with Retry & Fallback)
+# AI API CLIENT
 # ═════════════════════════════════════════════════════════════════
 
 async def call_chat(
@@ -599,13 +555,9 @@ async def call_chat(
     temp: float = 0.7,
     retries: int = 2
 ) -> Tuple[str, Dict]:
-    """Robust chat API with validation, retry, and metrics"""
     if model_id not in MODEL_REGISTRY:
         raise ValueError(f"Model {model_id} không tồn tại trong registry")
-
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {API_KEY}"}
-
-    # Build messages with system
     msgs = []
     has_sys = False
     for m in messages:
@@ -617,12 +569,9 @@ async def call_chat(
             msgs.append(m)
     if not has_sys and system:
         msgs.insert(0, {"role": "system", "content": system})
-
     payload = {"model": model_id, "messages": msgs, "temperature": temp, "max_tokens": max_tokens}
-
     start = time.time()
     last_error = None
-
     for attempt in range(retries + 1):
         try:
             timeout = aiohttp.ClientTimeout(total=300, connect=30, sock_read=300)
@@ -641,20 +590,16 @@ async def call_chat(
                 await asyncio.sleep(2 ** attempt)
             else:
                 raise last_error
-
     latency = time.time() - start
     choices = result.get('choices', [])
     if not choices:
         raise ValueError("API trả về rỗng (no choices)")
-
     content = choices[0].get('message', {}).get('content', '')
     if not content:
         raise ValueError("API trả về nội dung rỗng")
-
     usage = result.get('usage', {})
     inp_tok = usage.get('prompt_tokens', 0) or sum(estimate_tokens(m.get('content', '')) for m in msgs)
     out_tok = usage.get('completion_tokens', 0) or estimate_tokens(content)
-
     metrics = {
         'latency': latency, 'input_tokens': inp_tok, 'output_tokens': out_tok,
         'total_tokens': inp_tok + out_tok, 'tps': out_tok / latency if latency > 0 else 0
@@ -764,7 +709,7 @@ async def fetch_web(session: aiohttp.ClientSession, url: str) -> str:
         return f"Lỗi tải trang: {str(e)}"
 
 # ═════════════════════════════════════════════════════════════════
-# CODE INTERPRETER (Secure Sandbox)
+# CODE INTERPRETER
 # ═════════════════════════════════════════════════════════════════
 
 BLACKLIST = [
@@ -1093,7 +1038,49 @@ async def auto_summarize(state: ConversationState):
         _save_state()
 
 # ═════════════════════════════════════════════════════════════════
-# COMMAND HANDLERS
+# UNIVERSAL HELPERS FOR COMMANDS
+# ═════════════════════════════════════════════════════════════════
+
+async def safe_edit(status, text: str):
+    """Edit status message safely, fallback to new message if edit fails"""
+    try:
+        await status.edit_text(text, parse_mode=ParseMode.MARKDOWN)
+    except Exception:
+        try:
+            await status.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
+            pass
+
+async def safe_reply(update, text: str):
+    """Reply with error fallback to plain text"""
+    try:
+        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    except Exception:
+        await update.message.reply_text(text)
+
+def get_reply_text(update: Update) -> str:
+    """Extract text from replied message or args"""
+    if update.message.reply_to_message and update.message.reply_to_message.text:
+        return update.message.reply_to_message.text
+    return ""
+
+def parse_repo(repo_str: str) -> Tuple[Optional[str], Optional[str]]:
+    """Parse owner/repo string"""
+    if "/" not in repo_str:
+        return None, None
+    parts = repo_str.split("/", 1)
+    return parts[0], parts[1]
+
+async def get_session(context) -> aiohttp.ClientSession:
+    """Get or create aiohttp session"""
+    session = context.bot_data.get('session')
+    if not session or session.closed:
+        session = aiohttp.ClientSession()
+        context.bot_data['session'] = session
+    return session
+
+# ═════════════════════════════════════════════════════════════════
+# COMMAND HANDLERS — SUPER OPTIMIZED
 # ═════════════════════════════════════════════════════════════════
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1146,7 +1133,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• /reset — Xóa ngữ cảnh\n"
         f"• /help — Chi tiết đầy đủ"
     )
-    await update.message.reply_text(welcome, parse_mode=ParseMode.MARKDOWN)
+    await safe_reply(update, welcome)
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
@@ -1224,7 +1211,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• Model đắt tiền có cảnh báo trước khi dùng\n"
         f"• File quá dài sẽ gửi dạng file đã chọn trong /settings"
     )
-    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+    await safe_reply(update, help_text)
 
 async def cmd_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -1232,7 +1219,6 @@ async def cmd_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mode = state.mode
     cfg = MODE_CONFIG[mode]
     current = state.model
-
     keyboard = []
     row = []
     for idx, mid in enumerate(cfg["models"], 1):
@@ -1252,7 +1238,6 @@ async def cmd_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
         InlineKeyboardButton("💛 Mid", callback_data="filter_mid"),
         InlineKeyboardButton("🧡 High+", callback_data="filter_high"),
     ])
-
     cur_m = MODEL_REGISTRY.get(current)
     cur_str = f"{CATEGORY_EMOJI.get(cur_m.category, '⚪')} {cur_m.name}" if cur_m else current
     header = (
@@ -1270,11 +1255,9 @@ async def cb_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     state = await get_state(uid)
     data = query.data
-
     if data == "refresh_models":
         await cmd_models(update, context)
         return
-
     if data.startswith("filter_"):
         tier = data.replace("filter_", "")
         mode = state.mode
@@ -1298,7 +1281,6 @@ async def cb_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="refresh_models")])
         await query.edit_message_text(f"📂 Model {tier} — {len(filtered)} models\n👇 Chọn:", parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
         return
-
     if data.startswith("model_"):
         parts = data.split("_")
         if len(parts) >= 3:
@@ -1328,7 +1310,7 @@ async def cb_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_switch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("❌ Cú pháp: /switch <số>\nVí dụ: /switch 2", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Cú pháp: /switch <số>\nVí dụ: /switch 2")
         return
     try:
         choice = int(context.args[0])
@@ -1340,17 +1322,16 @@ async def cmd_switch(update: Update, context: ContextTypes.DEFAULT_TYPE):
             m = MODEL_REGISTRY[mid]
             state.model = mid
             _save_state()
-            await update.message.reply_text(
+            await safe_reply(update,
                 f"✅ Đã chuyển model!\n\n"
                 f"🤖 {CATEGORY_EMOJI.get(m.category, '⚪')} *{m.name}*\n"
                 f"💰 `{m.inp_price}`/`{m.out_price}` VND/1M\n"
-                f"🆔 `{mid}`",
-                parse_mode=ParseMode.MARKDOWN
+                f"🆔 `{mid}`"
             )
         else:
-            await update.message.reply_text(f"❌ Chọn số từ 1 đến {len(cfg['models'])}.", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, f"❌ Chọn số từ 1 đến {len(cfg['models'])}.")
     except ValueError:
-        await update.message.reply_text("❌ Vui lòng nhập số hợp lệ.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Vui lòng nhập số hợp lệ.")
 
 async def cmd_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -1372,15 +1353,14 @@ async def cmd_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state.model = MODE_CONFIG[arg]["default"]
         state.history = []
         _save_state()
-        await update.message.reply_text(
+        await safe_reply(update,
             f"✅ Đã chuyển chế độ!\n\n"
             f"🔄 Mode: *{MODE_CONFIG[arg]['name']}*\n"
             f"🤖 Model mặc định: `{state.model}`\n"
-            f"🗑 Đã xóa lịch sử cũ.",
-            parse_mode=ParseMode.MARKDOWN
+            f"🗑 Đã xóa lịch sử cũ."
         )
     else:
-        await update.message.reply_text("❌ Chế độ không hợp lệ!\nChọn: chat, agent, coder, lesson, vision, embed, tts", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Chế độ không hợp lệ!\nChọn: chat, agent, coder, lesson, vision, embed, tts")
 
 async def cb_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1416,11 +1396,10 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new.snippets = old.snippets
         user_states[uid] = new
         _save_state()
-    await update.message.reply_text(
+    await safe_reply(update,
         "🗑 Đã xóa toàn bộ ngữ cảnh!\n"
         "🆕 History + tasks mới.\n"
-        "📊 Stats, preferences, lessons, snippets được giữ lại.",
-        parse_mode=ParseMode.MARKDOWN
+        "📊 Stats, preferences, lessons, snippets được giữ lại."
     )
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1435,7 +1414,6 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = state.prefs.learning_lang
     lp = state.lesson_prog.get(lang)
     lesson_info = f"`{lp.current}/{len(THEORY_TOPICS.get(lang, DEFAULT_TOPICS))}`" if lp else "0"
-
     status = (
         f"ℹ️ Trạng Thái Denia Bot v7.0\n"
         f"{'━'*24}\n\n"
@@ -1453,7 +1431,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📅 Bắt đầu: `{state.stats.first_seen}`\n"
         f"🕐 Hoạt động cuối: `{state.stats.last_active}`"
     )
-    await update.message.reply_text(status, parse_mode=ParseMode.MARKDOWN)
+    await safe_reply(update, status)
 
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -1497,13 +1475,13 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if fmt in ("txt", "json", "md", "py"):
             p.file_format = fmt
         else:
-            await update.message.reply_text("❌ Format: txt, json, md, py", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "❌ Format: txt, json, md, py")
             return
     elif sub == "budget" and len(context.args) > 1:
         try:
             p.budget_limit = float(context.args[1])
         except:
-            await update.message.reply_text("❌ Nhập số hợp lệ.", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "❌ Nhập số hợp lệ.")
             return
     elif sub == "learn_lang" and len(context.args) > 1:
         lang = context.args[1].lower()
@@ -1512,30 +1490,30 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if lang not in state.lesson_prog:
                 state.lesson_prog[lang] = LessonProgress(lang)
         else:
-            await update.message.reply_text(f"❌ Không hỗ trợ. Các ngôn ngữ: {', '.join(LEARNING_LANGUAGES)}", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, f"❌ Không hỗ trợ. Các ngôn ngữ: {', '.join(LEARNING_LANGUAGES)}")
             return
     elif sub == "level" and len(context.args) > 1:
         lvl = context.args[1].lower()
         if lvl in ("beginner", "intermediate", "advanced"):
             p.learning_level = lvl
         else:
-            await update.message.reply_text("❌ Level: beginner, intermediate, advanced", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "❌ Level: beginner, intermediate, advanced")
             return
     else:
-        await update.message.reply_text("❌ Cú pháp không hợp lệ.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Cú pháp không hợp lệ.")
         return
     _save_state()
-    await update.message.reply_text("✅ Đã cập nhật cài đặt!", parse_mode=ParseMode.MARKDOWN)
+    await safe_reply(update, "✅ Đã cập nhật cài đặt!")
 
 # ═════════════════════════════════════════════════════════════════
-# AGENT COMMANDS
+# AGENT COMMANDS — SUPER OPTIMIZED
 # ═════════════════════════════════════════════════════════════════
 
 async def cmd_agent(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     state = await get_state(uid)
     if not context.args:
-        await update.message.reply_text(
+        await safe_reply(update,
             "🤖 Agent Mode — Tự động code & push GitHub\n"
             f"{'━'*26}\n\n"
             "Cách dùng:\n"
@@ -1544,8 +1522,7 @@ async def cmd_agent(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• /agent Tạo REST API FastAPI CRUD users\n"
             "• /agent Viết bot Telegram python-telegram-bot\n\n"
             "⚠️ Bạn sẽ được chọn model và xem cảnh báo chi phí trước.\n"
-            "💡 Agent tự động: Phân tích → Code → Review → Push → Báo cáo",
-            parse_mode=ParseMode.MARKDOWN
+            "💡 Agent tự động: Phân tích → Code → Review → Push → Báo cáo"
         )
         return
     desc = " ".join(context.args)
@@ -1579,14 +1556,12 @@ async def cb_agent(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     state = await get_state(uid)
     data = query.data
-
     if data == "agent_cancel":
         state.pending_task = None
         state.pending_model = None
         _save_state()
         await query.edit_message_text("❌ Agent task đã bị hủy.")
         return
-
     if data.startswith("agent_sel_"):
         try:
             choice = int(data.replace("agent_sel_", ""))
@@ -1624,16 +1599,14 @@ async def run_agent(update: Update, context: ContextTypes.DEFAULT_TYPE, state: C
     desc = state.pending_task
     mid = state.pending_model or state.model
     if not desc:
-        await update.effective_message.reply_text("❌ Không tìm thấy task.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Không tìm thấy task.")
         return
-
     tid = gen_id("task")
     task = AgentTask(task_id=tid, description=desc, model=mid, status="running")
     state.tasks.append(task)
     state.pending_task = None
     state.pending_model = None
     _save_state()
-
     status = await update.effective_message.reply_text(
         f"🤖 Agent Task Bắt Đầu\n"
         f"{'━'*24}\n"
@@ -1642,13 +1615,8 @@ async def run_agent(update: Update, context: ContextTypes.DEFAULT_TYPE, state: C
         f"⏳ Bước 1/5: 📋 Phân tích...",
         parse_mode=ParseMode.MARKDOWN
     )
-
     try:
-        session = context.bot_data.get('session')
-        if not session:
-            session = aiohttp.ClientSession()
-            context.bot_data['session'] = session
-
+        session = await get_session(context)
         # Step 1: Plan
         plan_msgs = [
             {"role": "system", "content": MODE_CONFIG["agent"]["system"] + "\n\n" + AGENT_WORKFLOW},
@@ -1656,14 +1624,12 @@ async def run_agent(update: Update, context: ContextTypes.DEFAULT_TYPE, state: C
         ]
         plan, plan_m = await call_chat(session, mid, plan_msgs, status, max_tokens=2048)
         task.cost_vnd += estimate_cost(mid, plan_m['input_tokens'], plan_m['output_tokens'])
-
         # Step 2: Code
-        await status.edit_text(
+        await safe_edit(status,
             f"🤖 Agent Task\n"
             f"{'━'*24}\n"
             f"🆔 `{tid}`\n"
-            f"⏳ Bước 2/5: 💻 Viết code...",
-            parse_mode=ParseMode.MARKDOWN
+            f"⏳ Bước 2/5: 💻 Viết code..."
         )
         code_msgs = [
             {"role": "system", "content": MODE_CONFIG["agent"]["system"]},
@@ -1671,7 +1637,6 @@ async def run_agent(update: Update, context: ContextTypes.DEFAULT_TYPE, state: C
         ]
         code, code_m = await call_chat(session, mid, code_msgs, status, max_tokens=MAX_OUTPUT_TOKENS)
         task.cost_vnd += estimate_cost(mid, code_m['input_tokens'], code_m['output_tokens'])
-
         # Parse files
         files = {}
         current_file = None
@@ -1688,14 +1653,12 @@ async def run_agent(update: Update, context: ContextTypes.DEFAULT_TYPE, state: C
             files[current_file] = '\n'.join(current_content)
         if not files:
             files = {"main.py": code}
-
         # Step 3: Validate
-        await status.edit_text(
+        await safe_edit(status,
             f"🤖 Agent Task\n"
             f"{'━'*24}\n"
             f"🆔 `{tid}`\n"
-            f"⏳ Bước 3/5: 🔍 Kiểm tra...",
-            parse_mode=ParseMode.MARKDOWN
+            f"⏳ Bước 3/5: 🔍 Kiểm tra..."
         )
         syntax_issues = []
         for fname, fcontent in files.items():
@@ -1704,14 +1667,12 @@ async def run_agent(update: Update, context: ContextTypes.DEFAULT_TYPE, state: C
                     compile(fcontent, fname, 'exec')
                 except SyntaxError as e:
                     syntax_issues.append(f"❌ {fname}: Dòng {e.lineno}: {e.msg}")
-
         # Step 4: Push
-        await status.edit_text(
+        await safe_edit(status,
             f"🤖 Agent Task\n"
             f"{'━'*24}\n"
             f"🆔 `{tid}`\n"
-            f"⏳ Bước 4/5: 🚀 Push GitHub...",
-            parse_mode=ParseMode.MARKDOWN
+            f"⏳ Bước 4/5: 🚀 Push GitHub..."
         )
         ok_user, udata = await gh_client.get_user()
         if not ok_user:
@@ -1725,25 +1686,21 @@ async def run_agent(update: Update, context: ContextTypes.DEFAULT_TYPE, state: C
             ok_repo, rdata = await gh_client.create_repo(rname, f"Auto-generated: {desc[:100]}")
         repo_url = f"https://github.com/{guser}/{rname}"
         task.repo_url = repo_url
-
         pushed = []
         for fname, fcontent in files.items():
             ok, _ = await gh_client.create_file(guser, rname, fname, fcontent, f"feat: add {fname}")
             if ok:
                 pushed.append(fname)
             await asyncio.sleep(0.5)
-
         # Step 5: Report
         task.status = "completed"
         task.completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         task.files = pushed
         state.stats.tasks_completed += 1
         _save_state()
-
         total_lat = plan_m['latency'] + code_m['latency']
         total_inp = plan_m['input_tokens'] + code_m['input_tokens']
         total_out = plan_m['output_tokens'] + code_m['output_tokens']
-
         result = (
             f"✅ Agent Task Hoàn Thành!\n"
             f"{'━'*24}\n\n"
@@ -1761,37 +1718,34 @@ async def run_agent(update: Update, context: ContextTypes.DEFAULT_TYPE, state: C
             f"• 💬 `{total_out}` tok\n"
             f"• 💰 `{task.cost_vnd:.1f}` VND"
         )
-        await status.edit_text(result, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=False)
-
+        await safe_edit(status, result)
         full = f"# {desc}\n# Repo: {repo_url}\n\n"
         for fname, fcontent in files.items():
             full += f"\n{'='*60}\n# FILE: {fname}\n{'='*60}\n\n{fcontent}\n"
         bio = io.BytesIO(full.encode())
         bio.name = f"agent_{tid[:8]}.txt"
         await update.effective_message.reply_document(document=bio, caption=f"📄 Full source — {len(files)} files")
-
     except Exception as e:
         task.status = "failed"
         task.error = str(e)
         task.completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         state.stats.tasks_failed += 1
         _save_state()
-        await status.edit_text(
+        await safe_edit(status,
             f"❌ Agent Task Thất Bại\n"
             f"{'━'*24}\n"
             f"🆔 `{tid}`\n"
             f"⚠️ `{str(e)[:300]}`\n\n"
-            f"💡 Thử kiểm tra token hoặc đơn giản hóa yêu cầu.",
-            parse_mode=ParseMode.MARKDOWN
+            f"💡 Thử kiểm tra token hoặc đơn giản hóa yêu cầu."
         )
 
 # ═════════════════════════════════════════════════════════════════
-# GITHUB COMMANDS
+# GITHUB COMMANDS — SUPER OPTIMIZED
 # ═════════════════════════════════════════════════════════════════
 
 async def cmd_git(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text(
+        await safe_reply(update,
             f"🌐 GitHub Full Control\n"
             f"{'━'*26}\n\n"
             f"📦 Repository:\n"
@@ -1810,8 +1764,7 @@ async def cmd_git(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🌿 Branch & PR:\n"
             f"• /git branch <o/r> <branch> — Tạo branch\n"
             f"• /git pr <o/r> <title> <head> <base> — Tạo PR\n"
-            f"• /git issue <o/r> <title> — Tạo issue",
-            parse_mode=ParseMode.MARKDOWN
+            f"• /git issue <o/r> <title> — Tạo issue"
         )
         return
     sub = context.args[0].lower()
@@ -1825,11 +1778,11 @@ async def cmd_git(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if sub in handlers:
         await handlers[sub](update, context)
     else:
-        await update.message.reply_text(f"❌ Lệnh GitHub không hợp lệ: `{sub}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, f"❌ Lệnh GitHub không hợp lệ: `{sub}`")
 
 async def _git_repo(update, context):
     if len(context.args) < 2:
-        await update.message.reply_text("❌ /git repo <tên> [mô tả]", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /git repo <tên> [mô tả]")
         return
     name = sanitize_repo(context.args[1])
     desc = " ".join(context.args[2:]) if len(context.args) > 2 else ""
@@ -1841,54 +1794,52 @@ async def _git_repo(update, context):
         ok, data = await gh_client.create_repo(name, desc, private)
         if ok:
             url = data.get("html_url", "")
-            await status.edit_text(f"✅ Repo đã tạo!\n\n📦 `{name}`\n🔗 {url}", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"✅ Repo đã tạo!\n\n📦 `{name}`\n🔗 {url}")
         else:
             err = data.get("message", str(data)) if isinstance(data, dict) else str(data)
-            await status.edit_text(f"❌ Lỗi: `{err[:400]}`", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"❌ Lỗi: `{err[:400]}`")
     except Exception as e:
-        await status.edit_text(f"⚠️ `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"⚠️ `{str(e)[:400]}`")
 
 async def _git_push(update, context):
     if len(context.args) < 3:
-        await update.message.reply_text("❌ /git push <owner/repo> <path> (reply code)", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /git push <owner/repo> <path> (reply code)")
         return
     repo = context.args[1]
     path = context.args[2]
-    if "/" not in repo:
-        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+    owner, rname = parse_repo(repo)
+    if not owner:
+        await safe_reply(update, "❌ Format: owner/repo")
         return
-    owner, rname = repo.split("/", 1)
-    content = ""
-    if update.message.reply_to_message and update.message.reply_to_message.text:
-        content = update.message.reply_to_message.text
-    elif len(context.args) > 3:
+    content = get_reply_text(update)
+    if not content and len(context.args) > 3:
         content = " ".join(context.args[3:])
     if not content:
-        await update.message.reply_text("❌ Thiếu nội dung!", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Thiếu nội dung!")
         return
     status = await update.message.reply_text(f"⏳ Push...\n📁 `{path}` → `{repo}`", parse_mode=ParseMode.MARKDOWN)
     try:
         ok, data = await gh_client.create_file(owner, rname, path, content, f"feat: add {path}")
         if ok:
             url = data.get("content", {}).get("html_url", "") if isinstance(data, dict) else ""
-            await status.edit_text(f"✅ Đã push!\n\n📁 `{path}`\n🔗 {url}", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"✅ Đã push!\n\n📁 `{path}`\n🔗 {url}")
         else:
             err = data.get("message", str(data)) if isinstance(data, dict) else str(data)
-            await status.edit_text(f"❌ `{err[:400]}`", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"❌ `{err[:400]}`")
     except Exception as e:
-        await status.edit_text(f"⚠️ `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"⚠️ `{str(e)[:400]}`")
 
 async def _git_get(update, context):
     if len(context.args) < 3:
-        await update.message.reply_text("❌ /git get <owner/repo> <path>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /git get <owner/repo> <path>")
         return
     repo = context.args[1]
     path = context.args[2]
-    if "/" not in repo:
-        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+    owner, rname = parse_repo(repo)
+    if not owner:
+        await safe_reply(update, "❌ Format: owner/repo")
         return
-    owner, rname = repo.split("/", 1)
-    status = await update.message.reply_text(f"⏳ Đang lấy file...", parse_mode=ParseMode.MARKDOWN)
+    status = await update.message.reply_text("⏳ Đang lấy file...", parse_mode=ParseMode.MARKDOWN)
     try:
         ok, data = await gh_client.get_file(owner, rname, path)
         if ok:
@@ -1903,20 +1854,20 @@ async def _git_get(update, context):
             await send_long(update, header + f"```\n{content}\n```", filename=path.replace("/", "_"))
         else:
             err = data.get("message", str(data)) if isinstance(data, dict) else str(data)
-            await status.edit_text(f"❌ `{err[:400]}`", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"❌ `{err[:400]}`")
     except Exception as e:
-        await status.edit_text(f"⚠️ `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"⚠️ `{str(e)[:400]}`")
 
 async def _git_list(update, context):
     if len(context.args) < 2:
-        await update.message.reply_text("❌ /git list <owner/repo> [path]", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /git list <owner/repo> [path]")
         return
     repo = context.args[1]
     path = context.args[2] if len(context.args) > 2 else ""
-    if "/" not in repo:
-        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+    owner, rname = parse_repo(repo)
+    if not owner:
+        await safe_reply(update, "❌ Format: owner/repo")
         return
-    owner, rname = repo.split("/", 1)
     status = await update.message.reply_text("⏳ Liệt kê...", parse_mode=ParseMode.MARKDOWN)
     try:
         ok, data = await gh_client.list_files(owner, rname, path)
@@ -1925,89 +1876,89 @@ async def _git_list(update, context):
             for item in data:
                 emoji = "📁" if item.get("type") == "dir" else "📄"
                 msg += f"{emoji} `{item.get('name')}`\n"
-            await status.edit_text(msg, parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, msg)
         else:
-            await status.edit_text("❌ Không thể liệt kê.", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, "❌ Không thể liệt kê.")
     except Exception as e:
-        await status.edit_text(f"⚠️ `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"⚠️ `{str(e)[:400]}`")
 
 async def _git_branch(update, context):
     if len(context.args) < 3:
-        await update.message.reply_text("❌ /git branch <owner/repo> <branch>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /git branch <owner/repo> <branch>")
         return
     repo = context.args[1]
     branch = context.args[2]
-    if "/" not in repo:
-        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+    owner, rname = parse_repo(repo)
+    if not owner:
+        await safe_reply(update, "❌ Format: owner/repo")
         return
-    owner, rname = repo.split("/", 1)
-    status = await update.message.reply_text(f"⏳ Tạo branch...", parse_mode=ParseMode.MARKDOWN)
+    status = await update.message.reply_text("⏳ Tạo branch...", parse_mode=ParseMode.MARKDOWN)
     try:
         ok, _ = await gh_client.create_branch(owner, rname, branch)
         if ok:
-            await status.edit_text(f"✅ Branch `{branch}` đã tạo!", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"✅ Branch `{branch}` đã tạo!")
         else:
-            await status.edit_text("❌ Lỗi tạo branch.", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, "❌ Lỗi tạo branch.")
     except Exception as e:
-        await status.edit_text(f"⚠️ `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"⚠️ `{str(e)[:400]}`")
 
 async def _git_pr(update, context):
     if len(context.args) < 5:
-        await update.message.reply_text("❌ /git pr <owner/repo> <title> <head> <base>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /git pr <owner/repo> <title> <head> <base>")
         return
     repo = context.args[1]
     title = context.args[2]
     head = context.args[3]
     base = context.args[4]
-    if "/" not in repo:
-        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+    owner, rname = parse_repo(repo)
+    if not owner:
+        await safe_reply(update, "❌ Format: owner/repo")
         return
-    owner, rname = repo.split("/", 1)
     status = await update.message.reply_text("⏳ Tạo PR...", parse_mode=ParseMode.MARKDOWN)
     try:
         ok, data = await gh_client.create_pr(owner, rname, title, head, base)
         if ok:
             url = data.get("html_url", "")
-            await status.edit_text(f"✅ PR đã tạo!\n🔗 {url}", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"✅ PR đã tạo!\n🔗 {url}")
         else:
-            await status.edit_text("❌ Lỗi tạo PR.", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, "❌ Lỗi tạo PR.")
     except Exception as e:
-        await status.edit_text(f"⚠️ `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"⚠️ `{str(e)[:400]}`")
 
 async def _git_delete(update, context):
     if len(context.args) < 3:
-        await update.message.reply_text("❌ /git delete <owner/repo> <path>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /git delete <owner/repo> <path>")
         return
     repo = context.args[1]
     path = context.args[2]
-    if "/" not in repo:
-        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+    owner, rname = parse_repo(repo)
+    if not owner:
+        await safe_reply(update, "❌ Format: owner/repo")
         return
-    owner, rname = repo.split("/", 1)
-    status = await update.message.reply_text(f"⏳ Xóa...", parse_mode=ParseMode.MARKDOWN)
+    status = await update.message.reply_text("⏳ Xóa...", parse_mode=ParseMode.MARKDOWN)
     try:
         ok_get, data_get = await gh_client.get_file(owner, rname, path)
         if not ok_get:
-            await status.edit_text("❌ Không tìm thấy file.", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, "❌ Không tìm thấy file.")
             return
         sha = data_get.get("sha", "") if isinstance(data_get, dict) else ""
         ok, _ = await gh_client.delete_file(owner, rname, path, f"chore: delete {path}", sha)
         if ok:
-            await status.edit_text(f"✅ Đã xóa `{path}`", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"✅ Đã xóa `{path}`")
         else:
-            await status.edit_text("❌ Lỗi xóa.", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, "❌ Lỗi xóa.")
     except Exception as e:
-        await status.edit_text(f"⚠️ `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"⚠️ `{str(e)[:400]}`")
 
 async def _git_commits(update, context):
     if len(context.args) < 2:
-        await update.message.reply_text("❌ /git commits <owner/repo>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /git commits <owner/repo>")
         return
     repo = context.args[1]
-    if "/" not in repo:
-        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+    owner, rname = parse_repo(repo)
+    if not owner:
+        await safe_reply(update, "❌ Format: owner/repo")
         return
-    owner, rname = repo.split("/", 1)
     status = await update.message.reply_text("⏳ Lấy commits...", parse_mode=ParseMode.MARKDOWN)
     try:
         ok, data = await gh_client.get_commits(owner, rname)
@@ -2018,70 +1969,68 @@ async def _git_commits(update, context):
                 msg_text = c.get("commit", {}).get("message", "")[:50]
                 author = c.get("commit", {}).get("author", {}).get("name", "?")
                 msg += f"{i}. `{sha}` — {msg_text}...\n   👤 {author}\n\n"
-            await status.edit_text(msg, parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, msg)
         else:
-            await status.edit_text("❌ Lỗi.", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, "❌ Lỗi.")
     except Exception as e:
-        await status.edit_text(f"⚠️ `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"⚠️ `{str(e)[:400]}`")
 
 async def _git_update(update, context):
     if len(context.args) < 3:
-        await update.message.reply_text("❌ /git update <owner/repo> <path> (reply code)", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /git update <owner/repo> <path> (reply code)")
         return
     repo = context.args[1]
     path = context.args[2]
-    if "/" not in repo:
-        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+    owner, rname = parse_repo(repo)
+    if not owner:
+        await safe_reply(update, "❌ Format: owner/repo")
         return
-    owner, rname = repo.split("/", 1)
-    content = ""
-    if update.message.reply_to_message and update.message.reply_to_message.text:
-        content = update.message.reply_to_message.text
-    elif len(context.args) > 3:
+    content = get_reply_text(update)
+    if not content and len(context.args) > 3:
         content = " ".join(context.args[3:])
     if not content:
-        await update.message.reply_text("❌ Thiếu nội dung!", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Thiếu nội dung!")
         return
-    status = await update.message.reply_text(f"⏳ Update...", parse_mode=ParseMode.MARKDOWN)
+    status = await update.message.reply_text("⏳ Update...", parse_mode=ParseMode.MARKDOWN)
     try:
         ok_get, data_get = await gh_client.get_file(owner, rname, path)
         if not ok_get:
-            await status.edit_text("❌ File không tồn tại.", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, "❌ File không tồn tại.")
             return
         sha = data_get.get("sha", "") if isinstance(data_get, dict) else ""
         ok, _ = await gh_client.update_file(owner, rname, path, content, f"fix: update {path}", sha)
         if ok:
-            await status.edit_text(f"✅ Đã update `{path}`", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"✅ Đã update `{path}`")
         else:
-            await status.edit_text("❌ Lỗi update.", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, "❌ Lỗi update.")
     except Exception as e:
-        await status.edit_text(f"⚠️ `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"⚠️ `{str(e)[:400]}`")
 
 async def _git_issue(update, context):
     if len(context.args) < 3:
-        await update.message.reply_text("❌ /git issue <owner/repo> <title> [body]", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /git issue <owner/repo> <title> [body]")
         return
     repo = context.args[1]
     title = context.args[2]
     body = " ".join(context.args[3:]) if len(context.args) > 3 else "Via Denia Bot"
-    if "/" not in repo:
-        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+    owner, rname = parse_repo(repo)
+    if not owner:
+        await safe_reply(update, "❌ Format: owner/repo")
         return
-    owner, rname = repo.split("/", 1)
     status = await update.message.reply_text("⏳ Tạo issue...", parse_mode=ParseMode.MARKDOWN)
     try:
         ok, data = await gh_client.create_issue(owner, rname, title, body)
         if ok:
             url = data.get("html_url", "")
-            await status.edit_text(f"✅ Issue đã tạo!\n🔗 {url}", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"✅ Issue đã tạo!\n🔗 {url}")
         else:
-            await status.edit_text("❌ Lỗi.", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, "❌ Lỗi.")
     except Exception as e:
-        await status.edit_text(f"⚠️ `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"⚠️ `{str(e)[:400]}`")
 
 async def _git_search(update, context):
     if len(context.args) < 2:
-        await update.message.reply_text("❌ /git search <query>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /git search <query>")
         return
     query = " ".join(context.args[1:])
     status = await update.message.reply_text(f"🔍 Tìm: `{query}`...", parse_mode=ParseMode.MARKDOWN)
@@ -2094,49 +2043,49 @@ async def _git_search(update, context):
                 stars = r.get("stargazers_count", 0)
                 lang = r.get("language", "?")
                 msg += f"{i}. ⭐ `{stars}` | `{name}`\n   🔤 {lang}\n\n"
-            await status.edit_text(msg, parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, msg)
         else:
-            await status.edit_text("❌ Không tìm thấy.", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, "❌ Không tìm thấy.")
     except Exception as e:
-        await status.edit_text(f"⚠️ `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"⚠️ `{str(e)[:400]}`")
 
 async def _git_fork(update, context):
     if len(context.args) < 2:
-        await update.message.reply_text("❌ /git fork <owner/repo>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /git fork <owner/repo>")
         return
     repo = context.args[1]
-    if "/" not in repo:
-        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+    owner, rname = parse_repo(repo)
+    if not owner:
+        await safe_reply(update, "❌ Format: owner/repo")
         return
-    owner, rname = repo.split("/", 1)
-    status = await update.message.reply_text(f"⏳ Fork...", parse_mode=ParseMode.MARKDOWN)
+    status = await update.message.reply_text("⏳ Fork...", parse_mode=ParseMode.MARKDOWN)
     try:
         ok, data = await gh_client.fork_repo(owner, rname)
         if ok:
             url = data.get("html_url", "")
-            await status.edit_text(f"✅ Đã fork!\n🔗 {url}", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"✅ Đã fork!\n🔗 {url}")
         else:
-            await status.edit_text("❌ Lỗi.", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, "❌ Lỗi.")
     except Exception as e:
-        await status.edit_text(f"⚠️ `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"⚠️ `{str(e)[:400]}`")
 
 async def _git_star(update, context):
     if len(context.args) < 2:
-        await update.message.reply_text("❌ /git star <owner/repo>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /git star <owner/repo>")
         return
     repo = context.args[1]
-    if "/" not in repo:
-        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+    owner, rname = parse_repo(repo)
+    if not owner:
+        await safe_reply(update, "❌ Format: owner/repo")
         return
-    owner, rname = repo.split("/", 1)
     try:
         ok, _ = await gh_client.star_repo(owner, rname)
         if ok:
-            await update.message.reply_text(f"⭐ Đã star `{repo}`", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, f"⭐ Đã star `{repo}`")
         else:
-            await update.message.reply_text("❌ Không thể star.", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "❌ Không thể star.")
     except Exception as e:
-        await update.message.reply_text(f"⚠️ `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, f"⚠️ `{str(e)[:400]}`")
 
 async def _git_rate(update, context):
     try:
@@ -2147,20 +2096,19 @@ async def _git_rate(update, context):
             limit = core.get("limit", 0)
             reset = core.get("reset", 0)
             reset_dt = datetime.fromtimestamp(reset).strftime("%H:%M:%S") if reset else "?"
-            await update.message.reply_text(
+            await safe_reply(update,
                 f"📊 Rate Limit\n"
                 f"{'━'*20}\n"
                 f"• Còn: `{rem}/{limit}`\n"
-                f"• Reset: `{reset_dt}`",
-                parse_mode=ParseMode.MARKDOWN
+                f"• Reset: `{reset_dt}`"
             )
         else:
-            await update.message.reply_text("❌ Không lấy được.", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "❌ Không lấy được.")
     except Exception as e:
-        await update.message.reply_text(f"⚠️ `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, f"⚠️ `{str(e)[:400]}`")
 
 # ═════════════════════════════════════════════════════════════════
-# LESSON COMMANDS
+# LESSON COMMANDS — SUPER OPTIMIZED
 # ═════════════════════════════════════════════════════════════════
 
 async def cmd_lesson(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2172,22 +2120,19 @@ async def cmd_lesson(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lang = state.prefs.learning_lang
             lp = state.lesson_prog.get(lang)
             if not lp:
-                await update.message.reply_text("📭 Chưa có tiến độ.", parse_mode=ParseMode.MARKDOWN)
+                await safe_reply(update, "📭 Chưa có tiến độ.")
                 return
             topics = THEORY_TOPICS.get(lang, DEFAULT_TOPICS)
             bar = "█" * int(20 * lp.current / len(topics)) + "░" * (20 - int(20 * lp.current / len(topics)))
-            await update.message.reply_text(
+            await safe_reply(update,
                 f"📊 Tiến độ — {LANG_DISPLAY.get(lang, lang)}\n"
                 f"{'━'*24}\n"
                 f"📖 Bài: `{lp.current}/{len(topics)}`\n"
                 f"`{bar}`\n"
                 f"✅ Hoàn thành: `{len(lp.completed)}`\n"
-                f"🏆 LeetCode: `{len(lp.leetcode)}`",
-                parse_mode=ParseMode.MARKDOWN
+                f"🏆 LeetCode: `{len(lp.leetcode)}`"
             )
             return
-
-        # Generate lesson
         lang = state.prefs.learning_lang
         lp = state.lesson_prog.get(lang)
         if not lp:
@@ -2195,10 +2140,9 @@ async def cmd_lesson(update: Update, context: ContextTypes.DEFAULT_TYPE):
             state.lesson_prog[lang] = lp
         topics = THEORY_TOPICS.get(lang, DEFAULT_TOPICS)
         if lp.current >= len(topics):
-            await update.message.reply_text(
+            await safe_reply(update,
                 f"🎉 Hoàn thành {len(topics)} bài {LANG_DISPLAY.get(lang, lang)}!\n"
-                f"Dùng /leetcode để luyện tập.",
-                parse_mode=ParseMode.MARKDOWN
+                f"Dùng /leetcode để luyện tập."
             )
             return
         topic = topics[lp.current]
@@ -2206,10 +2150,7 @@ async def cmd_lesson(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📚 Đang tạo bài {lp.current+1}/{len(topics)}: *{topic}*...",
             parse_mode=ParseMode.MARKDOWN
         )
-        session = context.bot_data.get('session')
-        if not session:
-            session = aiohttp.ClientSession()
-            context.bot_data['session'] = session
+        session = await get_session(context)
         prev = "; ".join(topics[max(0, lp.current-3):lp.current]) if lp.current > 0 else "None"
         prompt = (
             f"Bài học số {lp.current+1} trong khóa {LANG_DISPLAY.get(lang, lang)}.\n"
@@ -2244,9 +2185,8 @@ async def cmd_lesson(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             await update.message.reply_text("👆 Chọn:", reply_markup=InlineKeyboardMarkup(keyboard))
         except Exception as e:
-            await status.edit_text(f"❌ Lỗi: `{str(e)[:300]}`", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"❌ Lỗi: `{str(e)[:300]}`")
         return
-
     sub = context.args[0].lower()
     if sub == "lang" and len(context.args) > 1:
         lang = context.args[1].lower()
@@ -2255,19 +2195,15 @@ async def cmd_lesson(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if lang not in state.lesson_prog:
                 state.lesson_prog[lang] = LessonProgress(lang)
             _save_state()
-            await update.message.reply_text(
-                f"✅ Đã chọn: *{LANG_DISPLAY.get(lang, lang)}*\n📚 Dùng /lesson để học.",
-                parse_mode=ParseMode.MARKDOWN
-            )
+            await safe_reply(update, f"✅ Đã chọn: *{LANG_DISPLAY.get(lang, lang)}*\n📚 Dùng /lesson để học.")
         else:
-            await update.message.reply_text(f"❌ Không hỗ trợ. Các ngôn ngữ: {', '.join(LEARNING_LANGUAGES)}", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, f"❌ Không hỗ trợ. Các ngôn ngữ: {', '.join(LEARNING_LANGUAGES)}")
     else:
-        await update.message.reply_text(
+        await safe_reply(update,
             "📚 Lesson Commands:\n"
             "• /lesson — Bài tiếp theo\n"
             "• /lesson progress — Tiến độ\n"
-            "• /lesson_lang <ngôn ngữ> — Chọn ngôn ngữ",
-            parse_mode=ParseMode.MARKDOWN
+            "• /lesson_lang <ngôn ngữ> — Chọn ngôn ngữ"
         )
 
 async def cb_lesson(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2311,16 +2247,15 @@ async def cmd_leetcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if diff in ["Easy", "Medium", "Hard"]:
             await gen_leetcode(update, context, state, difficulty=diff)
         else:
-            await update.message.reply_text("❌ Easy, Medium, Hard", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "❌ Easy, Medium, Hard")
     elif sub == "random":
         await gen_leetcode(update, context, state)
     else:
-        await update.message.reply_text(
+        await safe_reply(update,
             "🏆 /leetcode — Menu\n"
             "• /leetcode topic <chủ đề>\n"
             "• /leetcode diff <easy/medium/hard>\n"
-            "• /leetcode random",
-            parse_mode=ParseMode.MARKDOWN
+            "• /leetcode random"
         )
 
 async def cb_leetcode(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2348,10 +2283,7 @@ async def gen_leetcode(update, context, state, topic=None, difficulty=None):
         f"🏆 Đang tạo...\n📌 `{topic}` | 🎯 `{difficulty}` | 💻 `{LANG_DISPLAY.get(lang, lang)}`",
         parse_mode=ParseMode.MARKDOWN
     )
-    session = context.bot_data.get('session')
-    if not session:
-        session = aiohttp.ClientSession()
-        context.bot_data['session'] = session
+    session = await get_session(context)
     prompt = (
         f"Bài tập LeetCode-style: {topic}\n"
         f"Độ khó: {difficulty}\n"
@@ -2377,12 +2309,12 @@ async def gen_leetcode(update, context, state, topic=None, difficulty=None):
         header = f"🏆 LeetCode — {topic}\n{'━'*20}\n🎯 `{difficulty}` | 💻 `{LANG_DISPLAY.get(lang, lang)}`\n\n"
         await send_long(update, header + prob, filename=f"leetcode_{topic.replace(' ', '_')}.md", fmt="md")
     except Exception as e:
-        await status.edit_text(f"❌ Lỗi: `{str(e)[:300]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"❌ Lỗi: `{str(e)[:300]}`")
 
 async def cmd_lesson_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         langs = "\n".join([f"• `{l}` — {LANG_DISPLAY.get(l, l)}" for l in LEARNING_LANGUAGES])
-        await update.message.reply_text(f"📚 Chọn ngôn ngữ:\n{langs}", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, f"📚 Chọn ngôn ngữ:\n{langs}")
         return
     lang = context.args[0].lower()
     uid = update.effective_user.id
@@ -2392,24 +2324,22 @@ async def cmd_lesson_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if lang not in state.lesson_prog:
             state.lesson_prog[lang] = LessonProgress(lang)
         _save_state()
-        await update.message.reply_text(f"✅ Đã chọn: *{LANG_DISPLAY.get(lang, lang)}*", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, f"✅ Đã chọn: *{LANG_DISPLAY.get(lang, lang)}*")
     else:
-        await update.message.reply_text("❌ Không hỗ trợ.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Không hỗ trợ.")
 
 # ═════════════════════════════════════════════════════════════════
-# TOOL COMMANDS
+# TOOL COMMANDS — SUPER OPTIMIZED
 # ═════════════════════════════════════════════════════════════════
 
 async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     state = await get_state(uid)
-    code = ""
-    if update.message.reply_to_message and update.message.reply_to_message.text:
-        code = update.message.reply_to_message.text
-    elif context.args:
+    code = get_reply_text(update)
+    if not code and context.args:
         code = " ".join(context.args)
     if not code:
-        await update.message.reply_text("❌ Cung cấp code Python. Reply code hoặc: /run print('hello')", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Cung cấp code Python. Reply code hoặc: /run print('hello')")
         return
     status = await update.message.reply_text("🐍 Đang chạy...", parse_mode=ParseMode.MARKDOWN)
     ok, out, err = await run_python(code, timeout=30)
@@ -2423,18 +2353,16 @@ async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     if err:
         report += f"\n📛 Error:\n```\n{truncate(err, 1500)}\n```"
-    await status.edit_text(report, parse_mode=ParseMode.MARKDOWN)
+    await safe_edit(status, report)
 
 async def cmd_runplot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     state = await get_state(uid)
-    code = ""
-    if update.message.reply_to_message and update.message.reply_to_message.text:
-        code = update.message.reply_to_message.text
-    elif context.args:
+    code = get_reply_text(update)
+    if not code and context.args:
         code = " ".join(context.args)
     if not code:
-        await update.message.reply_text("❌ Cung cấp code Python có Matplotlib.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Cung cấp code Python có Matplotlib.")
         return
     status = await update.message.reply_text("📊 Đang chạy + vẽ...", parse_mode=ParseMode.MARKDOWN)
     ok, out, err, img = await run_python_plot(code, timeout=30)
@@ -2449,16 +2377,14 @@ async def cmd_runplot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bio.name = f"plot_{int(time.time())}.png"
         await update.message.reply_photo(photo=bio, caption=report[:1024], parse_mode=ParseMode.MARKDOWN)
     else:
-        await update.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, report)
 
 async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    code = ""
-    if update.message.reply_to_message and update.message.reply_to_message.text:
-        code = update.message.reply_to_message.text
-    elif context.args:
+    code = get_reply_text(update)
+    if not code and context.args:
         code = " ".join(context.args)
     if not code:
-        await update.message.reply_text("❌ Reply code hoặc: /analyze <code>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Reply code hoặc: /analyze <code>")
         return
     status = await update.message.reply_text("🔍 Đang phân tích...", parse_mode=ParseMode.MARKDOWN)
     result = await analyze_code(code)
@@ -2478,16 +2404,14 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
         report += f"✅ Thông tin ({len(result['info'])}):\n" + "\n".join([f"  • {i}" for i in result["info"]]) + "\n\n"
     if not result["issues"] and not result["warnings"]:
         report += "🎉 Code sạch!\n"
-    await status.edit_text(report, parse_mode=ParseMode.MARKDOWN)
+    await safe_edit(status, report)
 
 async def cmd_format(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    code = ""
-    if update.message.reply_to_message and update.message.reply_to_message.text:
-        code = update.message.reply_to_message.text
-    elif context.args:
+    code = get_reply_text(update)
+    if not code and context.args:
         code = " ".join(context.args)
     if not code:
-        await update.message.reply_text("❌ Reply code hoặc: /format <code>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Reply code hoặc: /format <code>")
         return
     status = await update.message.reply_text("🎨 Đang format...", parse_mode=ParseMode.MARKDOWN)
     try:
@@ -2498,18 +2422,18 @@ async def cmd_format(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stdout, stderr = await asyncio.wait_for(proc.communicate(code.encode()), timeout=10)
         if proc.returncode == 0:
             formatted = stdout.decode('utf-8')
-            await status.edit_text(f"✅ Format thành công!\n\n```python\n{truncate(formatted, 3500)}\n```", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"✅ Format thành công!\n\n```python\n{truncate(formatted, 3500)}\n```")
             if len(formatted) > 3500:
                 await send_long(update, formatted, filename="formatted.py")
         else:
-            await status.edit_text(f"❌ Lỗi format:\n`{stderr.decode()[:500]}`", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"❌ Lỗi format:\n`{stderr.decode()[:500]}`")
     except Exception as e:
-        await status.edit_text(f"❌ `{str(e)[:500]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"❌ `{str(e)[:500]}`")
 
 async def cmd_diff(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = " ".join(context.args) if context.args else ""
-    if not text and not (update.message.reply_to_message and update.message.reply_to_message.text):
-        await update.message.reply_text("❌ /diff <code1> | <code2>", parse_mode=ParseMode.MARKDOWN)
+    if not text and not get_reply_text(update):
+        await safe_reply(update, "❌ /diff <code1> | <code2>")
         return
     if "|" in text:
         parts = text.split("|", 1)
@@ -2518,28 +2442,23 @@ async def cmd_diff(update: Update, context: ContextTypes.DEFAULT_TYPE):
         c1 = update.message.reply_to_message.text
         c2 = text
     else:
-        await update.message.reply_text("❌ Cần 2 đoạn code.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Cần 2 đoạn code.")
         return
     diff = format_diff(c1, c2)
     if not diff.strip():
-        await update.message.reply_text("✅ Hai đoạn code giống nhau!", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "✅ Hai đoạn code giống nhau!")
         return
-    await update.message.reply_text(f"🔍 Diff\n{'━'*20}\n```\n{diff}\n```", parse_mode=ParseMode.MARKDOWN)
+    await safe_reply(update, f"🔍 Diff\n{'━'*20}\n```\n{diff}\n```")
 
 async def cmd_testgen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    code = ""
-    if update.message.reply_to_message and update.message.reply_to_message.text:
-        code = update.message.reply_to_message.text
-    elif context.args:
+    code = get_reply_text(update)
+    if not code and context.args:
         code = " ".join(context.args)
     if not code:
-        await update.message.reply_text("❌ Reply code hoặc: /testgen <code>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Reply code hoặc: /testgen <code>")
         return
     status = await update.message.reply_text("🧪 Đang tạo tests...", parse_mode=ParseMode.MARKDOWN)
-    session = context.bot_data.get('session')
-    if not session:
-        session = aiohttp.ClientSession()
-        context.bot_data['session'] = session
+    session = await get_session(context)
     prompt = f"Viết pytest đầy đủ cho code sau:\n\n```python\n{code}\n```\n\nChỉ trả code test."
     msgs = [{"role": "user", "content": prompt}]
     try:
@@ -2547,7 +2466,7 @@ async def cmd_testgen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status.delete()
         await send_long(update, f"🧪 Unit Tests\n{'━'*20}\n\n```python\n{test_code}\n```", filename="test_generated.py")
     except Exception as e:
-        await status.edit_text(f"❌ `{str(e)[:300]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"❌ `{str(e)[:300]}`")
 
 async def cmd_docker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ptype = context.args[0] if context.args else "python"
@@ -2564,39 +2483,35 @@ async def cmd_cicd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_document(document=bio, caption=f"⚙️ CI/CD cho {ptype}", parse_mode=ParseMode.MARKDOWN)
 
 # ═════════════════════════════════════════════════════════════════
-# KNOWLEDGE BASE
+# KNOWLEDGE BASE — SUPER OPTIMIZED
 # ═════════════════════════════════════════════════════════════════
 
 async def cmd_kb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     state = await get_state(uid)
     if not context.args:
-        await update.message.reply_text(
+        await safe_reply(update,
             "📚 Knowledge Base (RAG)\n"
             f"{'━'*22}\n"
             "• /kb upload — Upload file (reply file)\n"
             "• /kb ask <câu hỏi> — Hỏi dựa trên KB\n"
             "• /kb list — Xem tài liệu\n"
             "• /kb clear — Xóa KB\n"
-            f"Hiện tại: `{len(state.kb)}` docs",
-            parse_mode=ParseMode.MARKDOWN
+            f"Hiện tại: `{len(state.kb)}` docs"
         )
         return
     sub = context.args[0].lower()
     if sub == "upload":
         if not update.message.reply_to_message or not update.message.reply_to_message.document:
-            await update.message.reply_text("❌ Reply vào tin nhắn có file để upload.", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "❌ Reply vào tin nhắn có file để upload.")
             return
         doc = update.message.reply_to_message.document
         if doc.file_size > 5 * 1024 * 1024:
-            await update.message.reply_text("❌ File quá lớn (>5MB).", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "❌ File quá lớn (>5MB).")
             return
         status = await update.message.reply_text("📤 Đang tải...", parse_mode=ParseMode.MARKDOWN)
         file = await context.bot.get_file(doc.file_id)
-        session = context.bot_data.get('session')
-        if not session:
-            session = aiohttp.ClientSession()
-            context.bot_data['session'] = session
+        session = await get_session(context)
         async with session.get(file.file_path) as resp:
             file_bytes = await resp.read()
         try:
@@ -2612,26 +2527,22 @@ async def cmd_kb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state.kb.append(KnowledgeDoc(doc_id=did, filename=doc.file_name, content=text, embedding=emb, chunks=len(chunks)))
         state.stats.files_processed += 1
         _save_state()
-        await status.edit_text(
-            f"✅ Đã upload!\n\n📄 `{doc.file_name}`\n🆔 `{did}`\n🧩 `{len(chunks)}` chunks\n📚 `{len(state.kb)}` docs",
-            parse_mode=ParseMode.MARKDOWN
+        await safe_edit(status,
+            f"✅ Đã upload!\n\n📄 `{doc.file_name}`\n🆔 `{did}`\n🧩 `{len(chunks)}` chunks\n📚 `{len(state.kb)}` docs"
         )
     elif sub == "ask":
         if len(context.args) < 2:
-            await update.message.reply_text("❌ /kb ask <câu hỏi>", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "❌ /kb ask <câu hỏi>")
             return
         query = " ".join(context.args[1:])
         if not state.kb:
-            await update.message.reply_text("📭 KB trống. Upload trước.", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "📭 KB trống. Upload trước.")
             return
         status = await update.message.reply_text("🧠 Đang truy vấn...", parse_mode=ParseMode.MARKDOWN)
-        session = context.bot_data.get('session')
-        if not session:
-            session = aiohttp.ClientSession()
-            context.bot_data['session'] = session
+        session = await get_session(context)
         results = await query_kb(session, query, state.kb)
         if not results:
-            await status.edit_text("❌ Không tìm thấy thông tin liên quan.", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, "❌ Không tìm thấy thông tin liên quan.")
             return
         ctx = "\n\n".join([f"[Từ {fname} — độ tương đồng {score:.2f}]:\n{content[:500]}" for fname, score, content in results])
         msgs = [
@@ -2641,76 +2552,66 @@ async def cmd_kb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             ans, metrics = await call_chat(session, "deepseek-v4-pro", msgs, status, max_tokens=2048)
             sources = "\n".join([f"• `{fname}` ({score:.2f})" for fname, score, _ in results])
-            await status.edit_text(
+            await safe_edit(status,
                 f"📚 Trả Lời\n"
                 f"{'━'*22}\n"
                 f"❓ `{query}`\n\n"
                 f"💡 {ans}\n\n"
-                f"📎 Nguồn:\n{sources}",
-                parse_mode=ParseMode.MARKDOWN
+                f"📎 Nguồn:\n{sources}"
             )
         except Exception as e:
-            await status.edit_text(f"❌ `{str(e)[:300]}`", parse_mode=ParseMode.MARKDOWN)
+            await safe_edit(status, f"❌ `{str(e)[:300]}`")
     elif sub == "list":
         if not state.kb:
-            await update.message.reply_text("📭 KB trống.", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "📭 KB trống.")
             return
         msg = f"📚 Documents\n{'━'*24}\n\n"
         for i, doc in enumerate(state.kb, 1):
             msg += f"{i}. 📄 `{doc.filename}`\n   🆔 `{doc.doc_id}`\n"
-        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, msg)
     elif sub == "clear":
         count = len(state.kb)
         state.kb = []
         _save_state()
-        await update.message.reply_text(f"🗑 Đã xóa {count} tài liệu.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, f"🗑 Đã xóa {count} tài liệu.")
     else:
-        await update.message.reply_text("❌ Lệnh KB không hợp lệ.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Lệnh KB không hợp lệ.")
 
 # ═════════════════════════════════════════════════════════════════
-# WEB & MULTIMEDIA
+# WEB & MULTIMEDIA — SUPER OPTIMIZED
 # ═════════════════════════════════════════════════════════════════
 
 async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("❌ /search <query>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /search <query>")
         return
     query = " ".join(context.args)
     status = await update.message.reply_text(f"🔍 Đang tìm: `{query}`...", parse_mode=ParseMode.MARKDOWN)
-    session = context.bot_data.get('session')
-    if not session:
-        session = aiohttp.ClientSession()
-        context.bot_data['session'] = session
+    session = await get_session(context)
     results = await web_search(session, query, 5)
     msg = f"🔍 Kết Quả\n{'━'*22}\n\n"
     for i, r in enumerate(results, 1):
         msg += f"{i}. *{r['title']}*\n   🔗 {r['url']}\n   📝 {r['snippet'][:100]}...\n\n"
-    await status.edit_text(msg, parse_mode=ParseMode.MARKDOWN)
+    await safe_edit(status, msg)
 
 async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("❌ /fetch <url>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /fetch <url>")
         return
     url = context.args[0]
     status = await update.message.reply_text(f"🌐 Đang tải: `{url}`...", parse_mode=ParseMode.MARKDOWN)
-    session = context.bot_data.get('session')
-    if not session:
-        session = aiohttp.ClientSession()
-        context.bot_data['session'] = session
+    session = await get_session(context)
     content = await fetch_web(session, url)
     await status.delete()
     await send_long(update, f"🌐 Nội Dung\n{'━'*22}\n\n{content}", filename="webpage.txt")
 
 async def cmd_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("❌ /image <mô tả>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /image <mô tả>")
         return
     prompt = " ".join(context.args)
     status = await update.message.reply_text("🎨 Đang tạo ảnh...", parse_mode=ParseMode.MARKDOWN)
-    session = context.bot_data.get('session')
-    if not session:
-        session = aiohttp.ClientSession()
-        context.bot_data['session'] = session
+    session = await get_session(context)
     try:
         img_bytes, info = await call_image(session, prompt, status)
         bio = io.BytesIO(img_bytes)
@@ -2718,20 +2619,17 @@ async def cmd_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status.delete()
         await update.message.reply_photo(photo=bio, caption=f"🎨 `{prompt[:100]}`\nℹ️ {info}")
     except Exception as e:
-        await status.edit_text(f"❌ `{str(e)[:300]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"❌ `{str(e)[:300]}`")
 
 async def cmd_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = " ".join(context.args) if context.args else ""
     if not text and update.message.reply_to_message and update.message.reply_to_message.text:
         text = update.message.reply_to_message.text
     if not text:
-        await update.message.reply_text("❌ /tts <văn bản> hoặc reply tin nhắn.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /tts <văn bản> hoặc reply tin nhắn.")
         return
     status = await update.message.reply_text("🔊 Đang tổng hợp...", parse_mode=ParseMode.MARKDOWN)
-    session = context.bot_data.get('session')
-    if not session:
-        session = aiohttp.ClientSession()
-        context.bot_data['session'] = session
+    session = await get_session(context)
     try:
         audio, metrics = await call_tts(session, "google-tts/vi", text, status)
         bio = io.BytesIO(audio)
@@ -2739,19 +2637,16 @@ async def cmd_tts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status.delete()
         await update.message.reply_voice(voice=bio, caption=f"🔊 `{len(text)}` chars | `{len(audio)}` bytes")
     except Exception as e:
-        await status.edit_text(f"❌ `{str(e)[:300]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"❌ `{str(e)[:300]}`")
 
 async def cmd_vision(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.reply_to_message or not update.message.reply_to_message.photo:
-        await update.message.reply_text("❌ Reply vào ảnh để phân tích.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Reply vào ảnh để phân tích.")
         return
     status = await update.message.reply_text("👁 Đang phân tích...", parse_mode=ParseMode.MARKDOWN)
     photo = update.message.reply_to_message.photo[-1]
     file = await context.bot.get_file(photo.file_id)
-    session = context.bot_data.get('session')
-    if not session:
-        session = aiohttp.ClientSession()
-        context.bot_data['session'] = session
+    session = await get_session(context)
     async with session.get(file.file_path) as resp:
         img_bytes = await resp.read()
     img_b64 = base64.b64encode(img_bytes).decode()
@@ -2766,26 +2661,25 @@ async def cmd_vision(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         result, metrics = await call_chat(session, "gpt-5.4-vision", msgs, status, max_tokens=2048)
         await status.delete()
-        await update.message.reply_text(f"👁 Phân Tích\n{'━'*20}\n\n{result}", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, f"👁 Phân Tích\n{'━'*20}\n\n{result}")
     except Exception as e:
-        await status.edit_text(f"⚠️ `{str(e)[:300]}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_edit(status, f"⚠️ `{str(e)[:300]}`")
 
 # ═════════════════════════════════════════════════════════════════
-# MEMORY & CONVERSATION
+# MEMORY & CONVERSATION — SUPER OPTIMIZED
 # ═════════════════════════════════════════════════════════════════
 
 async def cmd_branch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     state = await get_state(uid)
     if not context.args:
-        await update.message.reply_text(
+        await safe_reply(update,
             "🌿 Conversation Branches\n"
             f"{'━'*22}\n"
             "• /branch new <tên> — Tạo nhánh\n"
             "• /branch switch <id> — Chuyển\n"
             "• /branch list — Liệt kê\n"
-            "• /branch merge <id> — Gộp",
-            parse_mode=ParseMode.MARKDOWN
+            "• /branch merge <id> — Gộp"
         )
         return
     sub = context.args[0].lower()
@@ -2793,26 +2687,25 @@ async def cmd_branch(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = " ".join(context.args[1:]) if len(context.args) > 1 else f"Branch {len(state.history)}"
         state.history = []
         _save_state()
-        await update.message.reply_text(f"🌿 Nhánh mới: `{name}`\n💬 History đã reset.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, f"🌿 Nhánh mới: `{name}`\n💬 History đã reset.")
     elif sub == "switch":
-        await update.message.reply_text("✅ Đã chuyển nhánh (trong v7, mỗi nhánh là history mới).", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "✅ Đã chuyển nhánh (trong v7, mỗi nhánh là history mới).")
     elif sub == "list":
-        await update.message.reply_text(f"📊 Hiện tại: `{len(state.history)}` messages", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, f"📊 Hiện tại: `{len(state.history)}` messages")
     elif sub == "merge":
-        await update.message.reply_text("✅ Đã gộp nhánh.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "✅ Đã gộp nhánh.")
     else:
-        await update.message.reply_text("❌ Lệnh không hợp lệ.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Lệnh không hợp lệ.")
 
 async def cmd_remind(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args or len(context.args) < 2:
-        await update.message.reply_text(
+        await safe_reply(update,
             "⏰ Hẹn Giờ\n"
             f"{'━'*22}\n"
             "Cú pháp: /remind <time> <message>\n"
             "• 10m — 10 phút\n"
             "• 2h — 2 giờ\n"
-            "• 1d — 1 ngày",
-            parse_mode=ParseMode.MARKDOWN
+            "• 1d — 1 ngày"
         )
         return
     time_str = context.args[0].lower()
@@ -2820,17 +2713,16 @@ async def cmd_remind(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mult = {"s": 1, "m": 60, "h": 3600, "d": 86400}
     match = re.match(r'(\d+)([smhd])', time_str)
     if not match:
-        await update.message.reply_text("❌ Định dạng thời gian không hợp lệ.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Định dạng thời gian không hợp lệ.")
         return
     amt, unit = int(match.group(1)), match.group(2)
     seconds = amt * mult[unit]
     if seconds > 604800:
-        await update.message.reply_text("❌ Tối đa 7 ngày.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Tối đa 7 ngày.")
         return
     trigger = datetime.now() + timedelta(seconds=seconds)
-    await update.message.reply_text(
-        f"⏰ Đã đặt nhắc nhở!\n\n📝 `{msg}`\n⏱ Sau: `{amt}{unit}`\n🕐 `{trigger.strftime('%H:%M:%S')}`",
-        parse_mode=ParseMode.MARKDOWN
+    await safe_reply(update,
+        f"⏰ Đã đặt nhắc nhở!\n\n📝 `{msg}`\n⏱ Sau: `{amt}{unit}`\n🕐 `{trigger.strftime('%H:%M:%S')}`"
     )
     async def reminder():
         await asyncio.sleep(seconds)
@@ -2842,26 +2734,25 @@ async def cmd_remind(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_persona(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("❌ /persona <mô tả>", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ /persona <mô tả>")
         return
     persona = " ".join(context.args)
     uid = update.effective_user.id
     state = await get_state(uid)
     state.notes.append(f"Persona: {persona}")
     _save_state()
-    await update.message.reply_text(f"🎭 Đã đặt tính cách!\n\n📝 `{persona[:200]}`", parse_mode=ParseMode.MARKDOWN)
+    await safe_reply(update, f"🎭 Đã đặt tính cách!\n\n📝 `{persona[:200]}`")
 
 async def cmd_whiteboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     state = await get_state(uid)
     if not context.args:
-        await update.message.reply_text(
+        await safe_reply(update,
             "📝 Whiteboard\n"
             f"{'━'*20}\n"
             "• /whiteboard add <nội dung>\n"
             "• /whiteboard clear\n"
-            "• /whiteboard show",
-            parse_mode=ParseMode.MARKDOWN
+            "• /whiteboard show"
         )
         return
     sub = context.args[0].lower()
@@ -2869,75 +2760,72 @@ async def cmd_whiteboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         content = " ".join(context.args[1:])
         state.whiteboard += f"\n[{datetime.now().strftime('%H:%M')}] {content}"
         _save_state()
-        await update.message.reply_text("✅ Đã thêm!", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "✅ Đã thêm!")
     elif sub == "clear":
         state.whiteboard = ""
         _save_state()
-        await update.message.reply_text("🗑 Đã xóa!", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "🗑 Đã xóa!")
     elif sub == "show":
         if not state.whiteboard:
-            await update.message.reply_text("📭 Trống.", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "📭 Trống.")
             return
         await send_long(update, f"📝 Whiteboard\n{'━'*20}\n\n{state.whiteboard}", filename="whiteboard.md", fmt="md")
     else:
-        await update.message.reply_text("❌ Lệnh không hợp lệ.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Lệnh không hợp lệ.")
 
 async def cmd_snippet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     state = await get_state(uid)
     if not context.args:
-        await update.message.reply_text(
+        await safe_reply(update,
             "📦 Snippets\n"
             f"{'━'*20}\n"
             "• /snippet save <tên> (reply code)\n"
             "• /snippet list\n"
             "• /snippet get <tên>\n"
-            "• /snippet delete <tên>",
-            parse_mode=ParseMode.MARKDOWN
+            "• /snippet delete <tên>"
         )
         return
     sub = context.args[0].lower()
     if sub == "save" and len(context.args) > 1:
         name = context.args[1]
-        code = ""
-        if update.message.reply_to_message and update.message.reply_to_message.text:
-            code = update.message.reply_to_message.text
+        code = get_reply_text(update)
         if not code:
-            await update.message.reply_text("❌ Reply vào code để lưu.", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "❌ Reply vào code để lưu.")
             return
         state.snippets[name] = code
         _save_state()
-        await update.message.reply_text(f"✅ Đã lưu: `{name}`", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, f"✅ Đã lưu: `{name}`")
     elif sub == "list":
         if not state.snippets:
-            await update.message.reply_text("📭 Trống.", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "📭 Trống.")
             return
         msg = f"📦 Snippets\n{'━'*20}\n\n"
         for name, code in state.snippets.items():
             msg += f"• `{name}` — {len(code)} chars\n"
-        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, msg)
     elif sub == "get" and len(context.args) > 1:
         name = context.args[1]
         if name in state.snippets:
             await send_long(update, f"📦 `{name}`\n{'━'*20}\n\n```\n{state.snippets[name]}\n```", filename=f"snippet_{name}.py")
         else:
-            await update.message.reply_text("❌ Không tìm thấy.", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "❌ Không tìm thấy.")
     elif sub == "delete" and len(context.args) > 1:
         name = context.args[1]
         if name in state.snippets:
             del state.snippets[name]
             _save_state()
-            await update.message.reply_text(f"🗑 Đã xóa: `{name}`", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, f"🗑 Đã xóa: `{name}`")
         else:
-            await update.message.reply_text("❌ Không tìm thấy.", parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, "❌ Không tìm thấy.")
     else:
-        await update.message.reply_text("❌ Lệnh không hợp lệ.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Lệnh không hợp lệ.")
 
 async def cmd_learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     state = await get_state(uid)
     if not state.notes:
-        await update.message.reply_text("🧠 Chưa có ghi chú.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "🧠 Chưa có ghi chú.")
         return
     msg = f"🧠 Ghi Chú Tự Học\n{'━'*24}\n\n"
     for i, note in enumerate(state.notes[-20:], 1):
@@ -2948,13 +2836,13 @@ async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     state = await get_state(uid)
     if not state.tasks:
-        await update.message.reply_text("📭 Chưa có task. Dùng /agent để bắt đầu.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "📭 Chưa có task. Dùng /agent để bắt đầu.")
         return
     msg = f"🤖 Lịch Sử Tasks\n{'━'*24}\n\n"
     for i, t in enumerate(state.tasks[-10:], 1):
         em = {"completed": "✅", "failed": "❌", "running": "🔄", "pending": "⏳"}.get(t.status, "❓")
         msg += f"{i}. {em} `{t.task_id}`\n   📝 {t.description[:40]}...\n   🤖 {t.model} | 💰 {t.cost_vnd:.1f} VND\n\n"
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+    await safe_reply(update, msg)
 
 async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -2975,18 +2863,15 @@ async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_import(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.reply_to_message or not update.message.reply_to_message.document:
-        await update.message.reply_text("❌ Reply vào file JSON.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Reply vào file JSON.")
         return
     doc = update.message.reply_to_message.document
     if not doc.file_name.endswith('.json'):
-        await update.message.reply_text("❌ Chỉ chấp nhận JSON.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, "❌ Chỉ chấp nhận JSON.")
         return
     status = await update.message.reply_text("📥 Đang nhập...", parse_mode=ParseMode.MARKDOWN)
     file = await context.bot.get_file(doc.file_id)
-    session = context.bot_data.get('session')
-    if not session:
-        session = aiohttp.ClientSession()
-        context.bot_data['session'] = session
+    session = await get_session(context)
     async with session.get(file.file_path) as resp:
         data = await resp.json()
     uid = update.effective_user.id
@@ -3003,10 +2888,10 @@ async def cmd_import(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for lang, lp in data["lesson_prog"].items():
             state.lesson_prog[lang] = LessonProgress(**lp)
     _save_state()
-    await status.edit_text(f"✅ Đã nhập!\n💬 History: `{len(state.history)}`", parse_mode=ParseMode.MARKDOWN)
+    await safe_edit(status, f"✅ Đã nhập!\n💬 History: `{len(state.history)}`")
 
 # ═════════════════════════════════════════════════════════════════
-# MAIN MESSAGE HANDLER (Robust)
+# MAIN MESSAGE HANDLER — SUPER OPTIMIZED
 # ═════════════════════════════════════════════════════════════════
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3017,33 +2902,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         return
     state = await get_state(uid)
-
     # Strict model validation
     valid, err = validate_model(state.model, state.mode)
     if not valid:
         state.model = MODE_CONFIG[state.mode]["default"]
-        await update.message.reply_text(f"⚠️ {err}\n\nĐã tự động chuyển về `{state.model}`.", parse_mode=ParseMode.MARKDOWN)
-
+        await safe_reply(update, f"⚠️ {err}\n\nĐã tự động chuyển về `{state.model}`.")
     # Budget check
     budget = check_budget(state)
     if budget and "VƯỢT" in budget:
-        await update.message.reply_text(f"🚨 {budget}\nDùng /settings budget 0 để bỏ giới hạn.", parse_mode=ParseMode.MARKDOWN)
+        await safe_reply(update, f"🚨 {budget}\nDùng /settings budget 0 để bỏ giới hạn.")
         return
-
     # Auto summarize
     await auto_summarize(state)
-
     status = await update.message.reply_text(
         f"⏳ Đang xử lý...\n🔄 {MODE_CONFIG[state.mode]['name']}\n🤖 `{state.model}`",
         parse_mode=ParseMode.MARKDOWN
     )
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
-
-    session = context.bot_data.get('session')
-    if not session:
-        session = aiohttp.ClientSession()
-        context.bot_data['session'] = session
-
+    session = await get_session(context)
     try:
         system = MODE_CONFIG[state.mode]["system"]
         if state.notes and any(n.startswith("Persona:") for n in state.notes):
@@ -3051,23 +2927,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             system += f"\n\n{persona}"
         if state.context_summary:
             system += f"\n\nContext: {state.context_summary}"
-
         state.history.append({"role": "user", "content": text})
         if len(state.history) > MAX_HISTORY * 2:
             state.history = state.history[-(MAX_HISTORY * 2):]
-
         msgs = [{"role": "system", "content": system}] + state.history
-
-        # Fallback mechanism: if model fails, try cheaper alternatives
+        # Fallback mechanism
         model_to_use = state.model
         fallback_models = ["deepseek-v4-pro", "kimi-k2.5", "glm-4.7"]
         last_error = None
-
         for attempt_model in [model_to_use] + [m for m in fallback_models if m != model_to_use]:
             try:
                 ai_resp, metrics = await call_chat(session, attempt_model, msgs, status, system=system, max_tokens=MAX_OUTPUT_TOKENS)
                 if attempt_model != model_to_use:
-                    await update.message.reply_text(f"⚠️ Model `{model_to_use}` lỗi, đã fallback sang `{attempt_model}`.", parse_mode=ParseMode.MARKDOWN)
+                    await safe_reply(update, f"⚠️ Model `{model_to_use}` lỗi, đã fallback sang `{attempt_model}`.")
                 break
             except Exception as e:
                 last_error = e
@@ -3075,57 +2947,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 continue
         else:
             raise last_error if last_error else Exception("Tất cả model đều thất bại")
-
         state.history.append({"role": "assistant", "content": ai_resp})
         if len(state.history) > MAX_HISTORY * 2:
             state.history = state.history[-(MAX_HISTORY * 2):]
-
         m = MODEL_REGISTRY.get(attempt_model, ModelInfo("?", "?", "?", "?", 0, 0))
         header = f"{CATEGORY_EMOJI.get(m.category, '⚪')} {m.name}\n{'━'*20}\n\n"
         footer = build_footer(metrics, state, attempt_model)
         full = header + ai_resp + footer
-
         try:
             await status.delete()
         except:
             pass
         await send_long(update, full, filename="response.txt")
         _save_state()
-
     except Exception as e:
         logger.error(f"Error: {e}")
         err_msg = f"⚠️ Lỗi xử lý\n{'━'*15}\n`{str(e)[:400]}`\n\n💡 Thử: /reset hoặc /mode"
         try:
             await status.edit_text(err_msg, parse_mode=ParseMode.MARKDOWN)
         except:
-            await update.message.reply_text(err_msg, parse_mode=ParseMode.MARKDOWN)
+            await safe_reply(update, err_msg)
         state.last_error = str(e)
         state.notes.append(f"Error [{datetime.now().strftime('%H:%M')}]: {str(e)[:200]}")
         _save_state()
-
-def build_footer(metrics: Dict, state: ConversationState, model_id: str) -> str:
-    lat = metrics.get('latency', 0)
-    inp = metrics.get('input_tokens', 0)
-    out = metrics.get('output_tokens', 0)
-    tps = metrics.get('tps', 0)
-    cost = estimate_cost(model_id, inp, out)
-    state.stats.total_requests += 1
-    state.stats.total_input_tokens += inp
-    state.stats.total_output_tokens += out
-    state.stats.total_latency += lat
-    state.stats.total_cost_vnd += cost
-    state.stats.last_active = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    _save_state()
-    budget = check_budget(state)
-    budget_line = f"\n• 🚨 {budget}" if budget else ""
-    m = MODEL_REGISTRY.get(model_id, ModelInfo("?", "?", "?", "?", 0, 0))
-    return (
-        f"\n\n{'━'*22}\n"
-        f"📊 {CATEGORY_EMOJI.get(m.category, '⚪')} {m.name}\n"
-        f"• ⏱ `{lat:.2f}s` | 📝 `{inp:,}` | 💬 `{out:,}` tok\n"
-        f"• ⚡ `{tps:.1f}` tok/s | 💰 `{cost:.1f}` VND"
-        f"{budget_line}"
-    )
 
 # ═════════════════════════════════════════════════════════════════
 # ERROR HANDLER
@@ -3139,11 +2983,10 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state.notes.append(f"System error: {str(context.error)[:200]}")
         _save_state()
     if update and update.effective_message:
-        await update.effective_message.reply_text(
+        await safe_reply(update,
             "😵 Đã xảy ra lỗi không mong muốn!\n"
             "Vui lòng thử lại sau.\n\n"
-            "💡 Thử: /reset hoặc /help",
-            parse_mode=ParseMode.MARKDOWN
+            "💡 Thử: /reset hoặc /help"
         )
 
 # ═════════════════════════════════════════════════════════════════
@@ -3213,7 +3056,6 @@ def main():
         .concurrent_updates(True)
         .build()
     )
-
     # Core
     application.add_handler(CommandHandler('start', cmd_start))
     application.add_handler(CommandHandler('help', cmd_help))
@@ -3223,18 +3065,14 @@ def main():
     application.add_handler(CommandHandler('reset', cmd_reset))
     application.add_handler(CommandHandler('status', cmd_status))
     application.add_handler(CommandHandler('settings', cmd_settings))
-
     # Agent
     application.add_handler(CommandHandler('agent', cmd_agent))
-
     # GitHub
     application.add_handler(CommandHandler('git', cmd_git))
-
     # Learning
     application.add_handler(CommandHandler('lesson', cmd_lesson))
     application.add_handler(CommandHandler('lesson_lang', cmd_lesson_lang))
     application.add_handler(CommandHandler('leetcode', cmd_leetcode))
-
     # Code tools
     application.add_handler(CommandHandler('run', cmd_run))
     application.add_handler(CommandHandler('runplot', cmd_runplot))
@@ -3244,7 +3082,6 @@ def main():
     application.add_handler(CommandHandler('testgen', cmd_testgen))
     application.add_handler(CommandHandler('docker', cmd_docker))
     application.add_handler(CommandHandler('cicd', cmd_cicd))
-
     # Web & Multimedia
     application.add_handler(CommandHandler('search', cmd_search))
     application.add_handler(CommandHandler('fetch', cmd_fetch))
@@ -3252,7 +3089,6 @@ def main():
     application.add_handler(CommandHandler('image', cmd_image))
     application.add_handler(CommandHandler('tts', cmd_tts))
     application.add_handler(CommandHandler('vision', cmd_vision))
-
     # Memory
     application.add_handler(CommandHandler('branch', cmd_branch))
     application.add_handler(CommandHandler('remind', cmd_remind))
@@ -3263,20 +3099,16 @@ def main():
     application.add_handler(CommandHandler('import', cmd_import))
     application.add_handler(CommandHandler('tasks', cmd_tasks))
     application.add_handler(CommandHandler('learn', cmd_learn))
-
     # Callbacks
     application.add_handler(CallbackQueryHandler(cb_model, pattern="^(model_|filter_|refresh_models)"))
     application.add_handler(CallbackQueryHandler(cb_mode, pattern="^setmode_"))
     application.add_handler(CallbackQueryHandler(cb_agent, pattern="^agent_"))
     application.add_handler(CallbackQueryHandler(cb_lesson, pattern="^lesson_"))
     application.add_handler(CallbackQueryHandler(cb_leetcode, pattern="^leet_"))
-
     # Messages
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
     # Errors
     application.add_error_handler(error_handler)
-
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
