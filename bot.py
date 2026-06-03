@@ -2,9 +2,26 @@
 # -*- coding: utf-8 -*-
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                 🤖 Denia Bot v9.0 — ULTIMATE PRO EDITION                     ║
-║    Multi-Provider AI Agent | Auto-Fix | Smart Deploy | Professional Workflow ║
-║          OpenCode + NVIDIA NIM | Context-Aware | Self-Improving              ║
+║                    🤖 DENIA BOT v5.0 — ULTIMATE AI AGENT                     ║
+║           Autonomous Coding · Multi-Model · Self-Improving · RAG            ║
+║                                                                              ║
+║  Capabilities:                                                               ║
+║  • 50+ AI Models (GPT/Claude/DeepSeek/Gemini/Qwen/Mistral/Kimi/Grok...)     ║
+║  • Smart Agent: Plan → Code → Review → Test → Push → Verify                 ║
+║  • RAG Knowledge Base: Upload PDF/DOCX/TXT → Ask Anything                   ║
+║  • Code Interpreter: Execute Python, Analyze Data, Generate Charts            ║
+║  • Web Search: Real-time info, News, Weather, Currency                      ║
+║  • GitHub Agent: Full CRUD + Issues + Releases + Actions + Secrets          ║
+║  • Voice: TTS + STT (Speech-to-Text)                                        ║
+║  • Vision: Analyze images, OCR, Diagram generation                            ║
+║  • Security Scan: Auto-detect vulnerabilities in code                         ║
+║  • Auto-Docker & CI/CD: Dockerfile + GitHub Actions generator                 ║
+║  • Smart Router: Auto-select best model for task                            ║
+║  • Memory System: Long-term user preferences + conversation branches        ║
+║  • Export/Import: Chat history, Code projects, Knowledge bases                ║
+║  • Scheduled Tasks: Reminders, Cron jobs, Auto-reports                      ║
+║  • Collaborative Tools: Whiteboard, Diff/Patch, Code Review                 ║
+║  • Plugin System: Extensible architecture                                     ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -17,2750 +34,4178 @@ import logging
 import os
 import re
 import sys
+import tempfile
 import time
 import traceback
-import zipfile
-import signal
-import platform
+import uuid
+import math
+import random
+import string
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
-from enum import Enum
+from typing import Dict, List, Optional, Tuple, Any, Union, Callable
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Callable, Set
 from collections import defaultdict
+import textwrap
+import subprocess
+import shlex
 
 import aiohttp
 from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup, Message, ChatAction,
-    InputFile
+    Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand,
+    InputFile, InlineQueryResultArticle, InputTextMessageContent
 )
 from telegram.ext import (
     Application, ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    MessageHandler, ContextTypes, filters
+    MessageHandler, ContextTypes, filters, ConversationHandler, InlineQueryHandler
 )
-from telegram.constants import ParseMode as TPM, MessageLimit
-from telegram.error import BadRequest, TimedOut, NetworkError
+from telegram.constants import ParseMode, ChatAction
 
-# ============================================================================
-# 🔐 CONFIGURATION — Updated with your exact credentials
-# ============================================================================
+# ============================ CONFIGURATION ============================
 
-class Config:
-    """Central configuration with your provided API endpoints."""
+TELEGRAM_BOT_TOKEN = "8909561772:AAGQgxrbvXbi-RACF4_Z7iiS4R7NA6Za6wU"
+API_KEY = "sk-e317a237354192e26f99951f06e4882779e8a0e08e86d2f71242e8ff770bdf24"
+GITHUB_TOKEN = "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"
+GITHUB_API_BASE = "https://api.github.com"
+GITHUB_RAW_BASE = "https://raw.githubusercontent.com"
 
-    # Telegram Bot Token
-    BOT_TOKEN = "8909561772:AAGQgxrbvXbi-RACF4_Z7iiS4R7NA6Za6wU"
+API_CHAT_URL = "https://ckey.vn/v1/chat/completions"
+API_EMBED_URL = "https://ckey.vn/v1/embeddings"
+API_TTS_URL = "https://ckey.vn/v1/audio/speech"
+API_IMAGE_URL = "https://ckey.vn/v1/images/generations"
 
-    # OpenCode Provider (Free Tier)
-    PROVIDER_OPENCODE_BASE = "https://opencode.ai/zen"
-    PROVIDER_OPENCODE_KEY = "sk-F9v1PpTAyB4CVvaXYp1894RnUdicmNKAx6pZwitfBuWWUkXehlOC0VNcd0Ivt3U8"
+# Pricing: input / output per 1M tokens (VND)
+MODEL_PRICING = {
+    # FREE TIER (<=3k VND input)
+    "gpt-5.4-mini": (3000, 15000),
+    "claude-haiku-4.5": (3000, 15000),
+    "deepseek-3.2": (3000, 15000),
+    "deepseek-v4-flash": (3000, 15000),
+    "qwen3-coder-next": (3000, 15000),
+    "glm4.7": (3000, 15000),
+    "mistral-small-4-119b-2603": (3000, 15000),
+    "minimax-m2.1": (3000, 15000),
+    "kimi-k2.5": (3000, 15000),
+    "grok-4.3": (3000, 15000),
+    "llama-nemotron-embed-vl-1b-v2": (3000, 15000),
 
-    # NVIDIA NIM Provider (Free Tier)
-    PROVIDER_NVIDIA_BASE = "https://integrate.api.nvidia.com/v1"
-    PROVIDER_NVIDIA_KEY = "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"
+    # STANDARD TIER
+    "gpt-5.2": (5000, 25000),
+    "claude-sonnet-4.5": (5000, 25000),
+    "claude-sonnet-4.6": (5000, 25000),
+    "deepseek-v4-pro": (5000, 25000),
+    "qwen3-coder-480b-a35b-instruct": (5000, 25000),
+    "glm-5": (5000, 25000),
+    "mistral-medium-3.5-128b": (5000, 25000),
+    "minimax-m2.5": (5000, 25000),
+    "kimi-k2.6": (5000, 25000),
+    "grok-4.20-fast": (5000, 25000),
 
-    # GitHub Integration
-    GITHUB_TOKEN = "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"
+    # PREMIUM TIER
+    "gpt-5.3-codex": (8000, 40000),
+    "gpt-5.4": (8000, 40000),
+    "claude-sonnet-4.6[1m]": (8000, 40000),
+    "claude-opus-4-6": (8000, 40000),
+    "claude-opus-4.6": (8000, 40000),
+    "claude-opus-4-6[1m]": (8000, 40000),
+    "26479061/claude-opus-4-6": (8000, 40000),
+    "qwen3.6-27b": (8000, 40000),
+    "qwen3.6-35b-a3b": (8000, 40000),
+    "mistral-large-3-675b-instruct-2512": (8000, 40000),
+    "grok-4.20-thinking": (8000, 40000),
 
-    # Working Directory
-    WORK_DIR = Path("denia_data_v9")
+    # ULTRA TIER
+    "gpt-5.3-codex-high": (12000, 60000),
+    "gpt-5.5": (12000, 60000),
+    "claude-opus-4.7": (12000, 60000),
+    "claude-opus-4-7[1m]": (12000, 60000),
+    "claude-opus-4.8": (12000, 60000),
+    "26479061/claude-opus-4.8": (12000, 60000),
+    "qwen3.7-max": (12000, 60000),
+    "namnv/Claude Opus 4.6 + GPT 5.5": (15000, 75000),
 
-    # Limits & Performance
-    MAX_HISTORY = 60
-    MAX_TOKENS_PER_CALL = 8192
-    API_TIMEOUT = 300  # Increased for complex agent tasks
-    STREAM_CHUNK_SIZE = 256
+    # SPECIAL TIER
+    "claude-opus-4.7-thinking": (15000, 75000),
+    "claude-opus-4.8-thinking": (15000, 75000),
+    "claude-opus-4.7-thinking-agentic": (15000, 75000),
+    "claude-opus-4.8-thinking-agentic": (15000, 75000),
+    "gpt-5.5[1m]": (15000, 75000),
+    "claude-kiro-opus-4.7": (15000, 75000),
+    "claude-opus-4.8-kiro": (15000, 75000),
 
-    # Rate Limiting
-    USER_REQUESTS_PER_MIN = 25
-    GLOBAL_REQUESTS_PER_MIN = 400
-
-    # Storage & Cleanup
-    ZIP_RETENTION_HOURS = 72
-    MAX_SELF_NOTES = 200
-    STATE_SAVE_INTERVAL = 300  # Auto-save every 5 minutes
-
-    # Agent Settings
-    AGENT_MAX_RETRIES = 3
-    AGENT_RETRY_DELAY = 2.0
-    MAX_AGENT_FILES = 20
-
-    # Default Models
-    DEFAULT_CHAT_MODEL = "z-ai/glm-5.1"
-    DEFAULT_AGENT_MODEL = "minimaxai/minimax-m2.7"
-
-    # Feature Flags
-    AUTO_MODEL_SELECTION = True
-    CONTEXT_COMPRESSION = True
-    STREAMING_RESPONSES = True
-    AUTO_DEPENDENCY_DETECT = True
-
-    @classmethod
-    def init(cls):
-        cls.WORK_DIR.mkdir(parents=True, exist_ok=True)
-        (cls.WORK_DIR / "agents").mkdir(exist_ok=True)
-        (cls.WORK_DIR / "zips").mkdir(exist_ok=True)
-        (cls.WORK_DIR / "logs").mkdir(exist_ok=True)
-
-        log_file = cls.WORK_DIR / "logs" / f"denia_{datetime.now().strftime('%Y%m%d')}.log"
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s | %(levelname)-8s | %(name)-20s | %(message)s',
-            handlers=[
-                logging.FileHandler(log_file, encoding='utf-8', mode='a'),
-                logging.StreamHandler(sys.stdout)
-            ]
-        )
-        logging.getLogger("telegram.ext.Application").setLevel(logging.WARNING)
-        logging.info(f"🚀 Denia Bot v9.0 Pro initialized | Work dir: {cls.WORK_DIR.resolve()}")
-
-# ============================================================================
-# 🧠 TASK CLASSIFICATION & MODEL ROUTING
-# ============================================================================
-
-class TaskType(Enum):
-    CHAT = "chat"
-    CODE_GEN = "code_gen"
-    CODE_FIX = "code_fix"
-    CODE_REVIEW = "code_review"
-    ANALYSIS = "analysis"
-    CREATIVE = "creative"
-    SHORT_ANSWER = "short"
-    LONG_FORM = "long_form"
-    AGENT_TASK = "agent_task"
-    DEBUG = "debug"
-    ARCHITECTURE = "architecture"
-
-@dataclass
-class ModelProfile:
-    model_id: str
-    display_name: str
-    category: str
-    provider: str  # 'opencode' or 'nvidia'
-    strengths: Set[TaskType]
-    cost_tier: int  # 1=free/cheap, 2=standard, 3=premium
-    speed_tier: int  # 1=fast, 2=medium, 3=slow
-    max_context: int = 128000
-    supports_streaming: bool = True
-    supports_tools: bool = False
-    usage_count: int = 0
-    success_rate: float = 1.0
-    avg_latency: float = 0.0
-
-    def score_for_task(self, task_type: TaskType, budget_conscious: bool = True, 
-                       need_streaming: bool = True, complexity: int = 2) -> float:
-        score = 0.0
-
-        # Task match (40%)
-        if task_type in self.strengths:
-            score += 0.40
-        elif any(t in self.strengths for t in self._related_tasks(task_type)):
-            score += 0.25
-
-        # Speed (20%) - faster is better for simple tasks
-        if complexity <= 2:
-            score += (4 - self.speed_tier) / 3 * 0.20
-        else:
-            score += (self.speed_tier) / 3 * 0.10  # For complex tasks, accuracy > speed
-
-        # Cost/Budget (20%)
-        if budget_conscious:
-            score += (4 - self.cost_tier) / 3 * 0.20
-        else:
-            score += 0.15
-
-        # Reliability (10%)
-        score += self.success_rate * 0.10
-
-        # Streaming support (5%)
-        if need_streaming and self.supports_streaming:
-            score += 0.05
-
-        # Latency penalty/bonus (5%)
-        if self.avg_latency > 0:
-            score += max(0, 1.0 - (self.avg_latency / 30)) * 0.05
-
-        return min(1.0, score)
-
-    @staticmethod
-    def _related_tasks(task_type: TaskType) -> List[TaskType]:
-        relations = {
-            TaskType.CODE_GEN: [TaskType.AGENT_TASK, TaskType.ARCHITECTURE],
-            TaskType.CODE_FIX: [TaskType.DEBUG, TaskType.CODE_REVIEW],
-            TaskType.ANALYSIS: [TaskType.LONG_FORM, TaskType.CODE_REVIEW],
-            TaskType.AGENT_TASK: [TaskType.CODE_GEN, TaskType.ARCHITECTURE],
-        }
-        return relations.get(task_type, [])
-
-# Model Registry — Updated with your exact endpoints
-MODEL_REGISTRY: Dict[str, ModelProfile] = {
-    # OpenCode Models (Free)
-    "minimax-m2.5-free": ModelProfile(
-        "minimax-m2.5-free", "MiniMax M2.5 Free", "MiniMax", "opencode",
-        {TaskType.CHAT, TaskType.SHORT_ANSWER, TaskType.CREATIVE, TaskType.CODE_GEN},
-        1, 1, 128000, True, False
-    ),
-
-    # NVIDIA NIM Models (Free Tier)
-    "z-ai/glm-5.1": ModelProfile(
-        "z-ai/glm-5.1", "GLM-5.1", "GLM", "nvidia",
-        {TaskType.CHAT, TaskType.ANALYSIS, TaskType.CODE_GEN, TaskType.CODE_FIX, TaskType.LONG_FORM},
-        2, 1, 128000, True, True
-    ),
-    "minimaxai/minimax-m2.7": ModelProfile(
-        "minimaxai/minimax-m2.7", "MiniMax M2.7", "MiniMax", "nvidia",
-        {TaskType.CODE_GEN, TaskType.CODE_FIX, TaskType.ANALYSIS, TaskType.AGENT_TASK, TaskType.ARCHITECTURE},
-        2, 2, 128000, True, True
-    ),
-    "mistralai/mistral-large-3-675b-instruct-2512": ModelProfile(
-        "mistralai/mistral-large-3-675b-instruct-2512", "Mistral Large 3", "Mistral", "nvidia",
-        {TaskType.CODE_GEN, TaskType.ANALYSIS, TaskType.LONG_FORM, TaskType.AGENT_TASK, TaskType.CODE_REVIEW},
-        2, 2, 256000, True, True
-    ),
+    # EMBED / TTS
+    "text-embedding-3-small": (1000, 0),
+    "gemini-embedding-001": (1000, 0),
+    "google-tts/vi": (5000, 0),
+    "vi-VN-HoaiMyNeural": (5000, 0),
 }
 
-class SmartModelRouter:
-    """Intelligent model selection based on task analysis."""
+SYSTEM_PROMPT = """You are Denia Bot — an autonomous, self-improving AI agent with advanced reasoning capabilities.
 
-    _task_keywords = {
-        TaskType.CODE_FIX: ['fix', 'bug', 'error', 'debug', 'sửa', 'lỗi', 'crash', 'exception', 'traceback'],
-        TaskType.CODE_REVIEW: ['review', 'review code', 'đánh giá code', 'optimize', 'refactor', 'clean code'],
-        TaskType.CODE_GEN: ['code', 'function', 'def ', 'class ', 'api', 'endpoint', 'script', 'write a program',
-                           'viết code', 'tạo hàm', 'tạo class', 'javascript', 'python', 'react', 'fastapi'],
-        TaskType.AGENT_TASK: ['agent', 'full project', 'complete app', 'build a bot', 'tạo project', 
-                             'system', 'microservice', 'fullstack', 'backend', 'frontend'],
-        TaskType.ARCHITECTURE: ['architecture', 'design pattern', 'structure', 'folder structure', 'database schema'],
-        TaskType.ANALYSIS: ['analyze', 'phân tích', 'compare', 'so sánh', 'explain', 'giải thích', 'review', 'evaluate'],
-        TaskType.CREATIVE: ['story', 'poem', 'essay', 'creative', 'viết truyện', 'viết bài', 'content', 'blog'],
-        TaskType.SHORT_ANSWER: ['?', 'là gì', 'what is', 'how to', 'tại sao', 'how do', 'short'],
-        TaskType.DEBUG: ['debug', 'traceback', 'stack trace', 'not working', 'broken', 'fails'],
-    }
+CORE CAPABILITIES:
+1. Write, analyze, debug, refactor, and optimize code in ANY language
+2. Full GitHub integration: repos, files, branches, PRs, issues, releases, actions
+3. Advanced code analysis: syntax, logic, security, performance, style, complexity
+4. Self-training: auto-fix errors, learn from failures, improve over time
+5. Multi-step reasoning: plan, execute, verify, report
+6. RAG knowledge base: ingest documents, answer accurately
+7. Web search: real-time information retrieval and synthesis
+8. Data analysis: Python execution, chart generation, statistical analysis
 
-    @classmethod
-    def detect_task_type(cls, text: str, context: Optional[List[Dict]] = None) -> TaskType:
-        text_lower = text.lower()
-        scores = defaultdict(int)
+AGENT BEHAVIOR:
+- Always provide COMPLETE, runnable, production-ready code
+- Include error handling, logging, type hints, docstrings
+- Design for scalability, security, and maintainability
+- Explain reasoning step-by-step; offer alternatives
+- If uncertain, admit it honestly rather than hallucinate
+- Use Vietnamese for casual chat, English for technical/code tasks unless requested otherwise
 
-        for task_type, keywords in cls._task_keywords.items():
-            for kw in keywords:
-                if kw in text_lower:
-                    scores[task_type] += 1
+SELF-IMPROVEMENT PROTOCOL:
+- After each task: reflect, identify improvements, update knowledge
+- Maintain user preference profiles (coding style, verbosity, language)
+- Track success/failure patterns and adapt strategies
+- Proactively suggest optimizations and best practices
+"""
 
-        # Check for agent-level complexity
-        agent_indicators = ['multiple files', 'project', 'app', 'system', 'deploy', 'github', 'repo', 
-                           'full', 'complete solution', 'end to end', 'từ đầu đến cuối']
-        if any(ind in text_lower for ind in agent_indicators) and scores[TaskType.CODE_GEN] > 0:
-            scores[TaskType.AGENT_TASK] += 3
+AGENT_SYSTEM_PROMPT = """You are Denia Bot in AGENT MODE — an autonomous software engineering agent.
 
-        if scores:
-            best_task = max(scores.items(), key=lambda x: x[1])[0]
-            return best_task
+MISSION: Complete coding tasks end-to-end with zero human intervention.
 
-        # Fallback based on length and context
-        if len(text) < 80:
-            return TaskType.SHORT_ANSWER
-        elif len(text) > 800:
-            return TaskType.LONG_FORM
-        return TaskType.CHAT
+WORKFLOW (MANDATORY):
+1. ANALYZE: Fully understand requirements, constraints, edge cases
+2. PLAN: Create detailed implementation plan with file structure
+3. ARCHITECT: Design scalable, secure, maintainable system
+4. CODE: Write complete, documented, tested code for ALL files
+5. REVIEW: Self-review for bugs, security issues, performance
+6. TEST: Generate unit tests, integration tests, verify syntax
+7. DOCUMENT: Write README, API docs, deployment guide
+8. PUSH: Create GitHub repo, commit all files with proper messages
+9. VERIFY: Confirm repo is accessible and files are correct
+10. REPORT: Summarize with links, metrics, and next steps
 
-    @classmethod
-    def select_best_model(cls, user_input: str, history: Optional[List[Dict]] = None,
-                         budget_conscious: bool = True, need_streaming: bool = True,
-                         preferred_provider: Optional[str] = None) -> Tuple[str, str, str]:
-        """Returns (model_id, display_name, provider)"""
-        task_type = cls.detect_task_type(user_input, history)
-        complexity = cls._estimate_complexity(user_input)
+CODE QUALITY STANDARDS:
+- PEP 8 / Google Style / Standard conventions
+- Comprehensive error handling and logging
+- Input validation and sanitization
+- No hardcoded secrets (use env vars)
+- Async where appropriate, thread-safe
+- Include __main__ guards and example usage
 
-        candidates = []
-        for model_id, profile in MODEL_REGISTRY.items():
-            # Skip if provider preference doesn't match
-            if preferred_provider and profile.provider != preferred_provider:
-                continue
+GITHUB OPERATIONS:
+- Create repo with README, .gitignore, LICENSE
+- Use conventional commits (feat:, fix:, docs:, test:)
+- Protect main branch, use feature branches for PRs
+- Set up GitHub Actions CI/CD when applicable
+- Create releases with semantic versioning
 
-            score = profile.score_for_task(
-                task_type, budget_conscious, need_streaming, complexity
-            )
+SECURITY CHECKLIST:
+- No SQL injection, XSS, command injection vulnerabilities
+- Proper auth/authorization patterns
+- Secure secret management
+- Input validation on all boundaries
+- Dependency vulnerability scanning
+"""
 
-            # Boost for exact task match
-            if task_type in profile.strengths:
-                score += 0.15
+DEFAULT_MODE = "chat"
+DEFAULT_CHAT_MODEL = "deepseek-v4-pro"
+DEFAULT_AGENT_MODEL = "claude-opus-4.6"
+DEFAULT_EMBED_MODEL = "text-embedding-3-small"
+DEFAULT_TTS_MODEL = "google-tts/vi"
+DEFAULT_VISION_MODEL = "gpt-5.4"
 
-            # Recent success rate bonus
-            if profile.success_rate > 0.95:
-                score += 0.05
+MAX_HISTORY = 64
+MAX_OUTPUT_TOKENS = 16384
+STATUS_UPDATE_INTERVAL = 2.0
+TELEGRAM_MSG_LIMIT = 4096
+TELEGRAM_FILE_LIMIT = 20 * 1024 * 1024
 
-            candidates.append((model_id, profile.display_name, profile.provider, score, profile))
+# ============================ MODEL CATALOG ============================
 
-        candidates.sort(key=lambda x: -x[3])
+CATEGORY_EMOJI = {
+    "GPT": "🟢", "Claude": "🟣", "Gemini": "🔵", "GLM": "🟡",
+    "Qwen": "🟠", "MiniMax": "🔴", "Mistral": "⚪", "DeepSeek": "⚫",
+    "Open-source": "🟤", "Grok": "🟩", "Kimi": "🟦", "Khác": "⬜",
+    "Free": "💚", "Standard": "💛", "Premium": "🧡", "Ultra": "❤️", "Special": "💜"
+}
 
-        if not candidates:
-            # Ultimate fallback
-            return "z-ai/glm-5.1", "GLM-5.1", "nvidia"
+def _make_models():
+    """Build model catalog with pricing tiers."""
+    free = []
+    standard = []
+    premium = []
+    ultra = []
+    special = []
 
-        winner = candidates[0]
-        logging.info(f"🎯 Router selected: {winner[0]} (score: {winner[3]:.2f}) for task: {task_type.value}")
-        return winner[0], winner[1], winner[2]
+    for model_id, (inp, out) in MODEL_PRICING.items():
+        tier = "Free" if inp <= 3000 else "Standard" if inp <= 5000 else "Premium" if inp <= 8000 else "Ultra" if inp <= 12000 else "Special"
+        price_str = f"{inp//1000}k/{out//1000}k"
+        display = f"{model_id.split('/')[-1][:20]} ({price_str}d)"
 
-    @classmethod
-    def record_result(cls, model_id: str, success: bool, latency: float = 0.0):
-        if model_id in MODEL_REGISTRY:
-            profile = MODEL_REGISTRY[model_id]
-            profile.usage_count += 1
-            alpha = 0.15
-            profile.success_rate = alpha * (1.0 if success else 0.0) + (1 - alpha) * profile.success_rate
-            if latency > 0:
-                profile.avg_latency = alpha * latency + (1 - alpha) * (profile.avg_latency or latency)
+        cat = "Khác"
+        if "gpt" in model_id.lower(): cat = "GPT"
+        elif "claude" in model_id.lower(): cat = "Claude"
+        elif "deepseek" in model_id.lower(): cat = "DeepSeek"
+        elif "qwen" in model_id.lower(): cat = "Qwen"
+        elif "glm" in model_id.lower(): cat = "GLM"
+        elif "mistral" in model_id.lower(): cat = "Mistral"
+        elif "minimax" in model_id.lower(): cat = "MiniMax"
+        elif "grok" in model_id.lower(): cat = "Grok"
+        elif "kimi" in model_id.lower(): cat = "Kimi"
+        elif "gemini" in model_id.lower(): cat = "Gemini"
+        elif "llama" in model_id.lower(): cat = "Open-source"
 
-    @staticmethod
-    def _estimate_complexity(text: str) -> int:
-        """Estimate complexity 1-5 based on request."""
-        score = 1
-        if len(text) > 500: score += 1
-        if len(text) > 1500: score += 1
-        if any(k in text.lower() for k in ['database', 'auth', 'deploy', 'microservice', 'architecture']): score += 1
-        if any(k in text.lower() for k in ['multiple', 'full stack', 'system', 'complex']): score += 1
-        return min(5, score)
+        entry = (cat, model_id, display, tier, inp, out)
+        if tier == "Free": free.append(entry)
+        elif tier == "Standard": standard.append(entry)
+        elif tier == "Premium": premium.append(entry)
+        elif tier == "Ultra": ultra.append(entry)
+        else: special.append(entry)
 
-# ============================================================================
-# 🗜️ ADVANCED CONTEXT COMPRESSOR
-# ============================================================================
+    return free + standard + premium + ultra + special
 
-class ContextCompressor:
-    CHARS_PER_TOKEN = 3.8  # More accurate estimate
+ALL_CHAT_MODELS = _make_models()
 
-    @classmethod
-    def estimate_tokens(cls, messages: List[Dict]) -> int:
-        total_chars = sum(len(m.get('content', '')) for m in messages)
-        return int(len(messages) * 4 + total_chars / cls.CHARS_PER_TOKEN)
+CHAT_MODELS = [m for m in ALL_CHAT_MODELS if m[1] not in ("text-embedding-3-small", "gemini-embedding-001", "google-tts/vi", "vi-VN-HoaiMyNeural")]
+EMBED_MODELS = [
+    ("Khác", "text-embedding-3-small", "Text Embed 3 Small (1kd)", "Free", 1000, 0),
+    ("Gemini", "gemini-embedding-001", "Gemini Embed 001 (1kd)", "Free", 1000, 0),
+    ("Gemini", "gemini-embedding-2-preview", "Gemini Embed 2 Preview (1kd)", "Free", 1000, 0),
+    ("Open-source", "llama-nemotron-embed-vl-1b-v2", "Llama Nemotron Embed (1kd)", "Free", 1000, 0),
+]
+TTS_MODELS = [
+    ("Khác", "google-tts/vi", "Google TTS Vi (5kd)", "Standard", 5000, 0),
+    ("Khác", "vi-VN-HoaiMyNeural", "HoaiMy Neural (5kd)", "Standard", 5000, 0),
+    ("Khác", "vi-VN-NamMinhNeural", "NamMinh Neural (5kd)", "Standard", 5000, 0),
+]
 
-    @classmethod
-    def compress_history(cls, history: List[Dict], max_tokens: int = 6000, 
-                        preserve_system: bool = True) -> List[Dict]:
-        if not history or len(history) <= 12:
-            return history
+MODE_CONFIG = {
+    "chat": {
+        "name": "💬 Chat",
+        "models": CHAT_MODELS,
+        "default": DEFAULT_CHAT_MODEL,
+        "endpoint": API_CHAT_URL,
+    },
+    "agent": {
+        "name": "🤖 Agent",
+        "models": CHAT_MODELS,
+        "default": DEFAULT_AGENT_MODEL,
+        "endpoint": API_CHAT_URL,
+    },
+    "embed": {
+        "name": "📊 Embed",
+        "models": EMBED_MODELS,
+        "default": DEFAULT_EMBED_MODEL,
+        "endpoint": API_EMBED_URL,
+    },
+    "tts": {
+        "name": "🔊 TTS",
+        "models": TTS_MODELS,
+        "default": DEFAULT_TTS_MODEL,
+        "endpoint": API_TTS_URL,
+    },
+    "vision": {
+        "name": "👁 Vision",
+        "models": [(c, m, d, t, i, o) for c, m, d, t, i, o in CHAT_MODELS if "gpt" in m or "claude" in m or "gemini" in m][:10],
+        "default": DEFAULT_VISION_MODEL,
+        "endpoint": API_CHAT_URL,
+    },
+    "coder": {
+        "name": "💻 Coder",
+        "models": [(c, m, d, t, i, o) for c, m, d, t, i, o in CHAT_MODELS if "codex" in m.lower() or "coder" in m.lower() or "opus" in m.lower() or "deepseek" in m.lower()],
+        "default": "claude-opus-4.6",
+        "endpoint": API_CHAT_URL,
+    },
+}
 
-        # Separate system messages
-        system_msgs = [m for m in history if m.get('role') == 'system']
-        conversation = [m for m in history if m.get('role') != 'system']
+# ============================ LOGGING ============================
 
-        # Always keep recent messages
-        keep_recent = min(12, len(conversation))
-        recent = conversation[-keep_recent:]
-        old_messages = conversation[:-keep_recent]
+logging.basicConfig(
+    format='%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler('/tmp/denia_bot.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
-        if not old_messages:
-            return system_msgs + recent
-
-        # Summarize old messages in chunks
-        chunks = []
-        chunk_size = 5
-        for i in range(0, len(old_messages), chunk_size):
-            chunk = old_messages[i:i+chunk_size]
-            chunk_text = " | ".join([
-                f"{m['role']}: {m['content'][:120]}..." if len(m['content']) > 120 
-                else f"{m['role']}: {m['content']}"
-                for m in chunk
-            ])
-            chunks.append(chunk_text)
-
-        summary = f"[Previous conversation summary ({len(old_messages)} messages)]: " + " | ".join(chunks[:8])
-
-        compressed = system_msgs + [{"role": "system", "content": summary}] + recent
-        return compressed
-
-    @classmethod
-    def trim_for_agent(cls, history: List[Dict], max_messages: int = 20) -> List[Dict]:
-        """Aggressive trim for agent mode to save tokens for code generation."""
-        if len(history) <= max_messages:
-            return history
-        return history[:2] + history[-(max_messages-2):]  # Keep first 2 (system/context) + recent
-
-# ============================================================================
-# 🔄 STREAMING & API HANDLER
-# ============================================================================
-
-class APIProvider:
-    """Unified API provider interface."""
-
-    def __init__(self, provider: str):
-        self.provider = provider
-        if provider == "opencode":
-            self.base = Config.PROVIDER_OPENCODE_BASE
-            self.key = Config.PROVIDER_OPENCODE_KEY
-        else:  # nvidia
-            self.base = Config.PROVIDER_NVIDIA_BASE
-            self.key = Config.PROVIDER_NVIDIA_KEY
-
-    def headers(self) -> Dict[str, str]:
-        return {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.key}"
-        }
-
-    def build_payload(self, model_id: str, messages: List[Dict], 
-                     temperature: float = 0.7, max_tokens: int = None,
-                     stream: bool = True, **extra) -> Dict:
-        payload = {
-            "model": model_id,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens or Config.MAX_TOKENS_PER_CALL,
-            "stream": stream
-        }
-        if extra:
-            payload.update(extra)
-        return payload
-
-class StreamingHandler:
-    """Robust streaming handler with fallback and retry logic."""
-
-    @staticmethod
-    async def chat_complete(model_id: str, provider: str, messages: List[Dict],
-                            status_msg: Optional[Message] = None,
-                            progress_callback: Optional[Callable] = None,
-                            temperature: float = 0.7,
-                            max_retries: int = 2) -> Tuple[str, Dict]:
-        """Main chat completion with streaming support."""
-        api = APIProvider(provider)
-        payload = api.build_payload(model_id, messages, temperature, stream=True)
-
-        for attempt in range(max_retries + 1):
-            try:
-                return await StreamingHandler._stream_request(
-                    api, payload, status_msg, progress_callback
-                )
-            except Exception as e:
-                if attempt < max_retries:
-                    wait = Config.AGENT_RETRY_DELAY * (2 ** attempt)
-                    logging.warning(f"Stream attempt {attempt+1} failed: {e}. Retrying in {wait}s...")
-                    if status_msg and attempt == 0:
-                        try:
-                            await status_msg.edit_text(
-                                f"⚠️ API hiccup, retrying... ({attempt+1}/{max_retries})",
-                                parse_mode=TPM.MARKDOWN
-                            )
-                        except:
-                            pass
-                    await asyncio.sleep(wait)
-                else:
-                    logging.error(f"All streaming attempts failed: {e}")
-                    # Final fallback to non-streaming
-                    return await StreamingHandler._non_stream_request(api, payload)
-
-        return "Error: All API attempts failed", {"error": True, "latency": 0}
-
-    @staticmethod
-    async def _stream_request(api: APIProvider, payload: Dict,
-                              status_msg: Optional[Message] = None,
-                              progress_callback: Optional[Callable] = None) -> Tuple[str, Dict]:
-        accumulated = []
-        start_time = time.time()
-        last_update = 0
-        update_interval = 1.5  # Update Telegram every 1.5s
-
-        timeout = aiohttp.ClientTimeout(total=Config.API_TIMEOUT, connect=30)
-
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                f"{api.base}/chat/completions",
-                headers=api.headers(),
-                json=payload
-            ) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    raise Exception(f"HTTP {resp.status}: {text[:300]}")
-
-                async for line in resp.content:
-                    line = line.decode('utf-8', errors='ignore').strip()
-                    if not line or line == 'data: [DONE]':
-                        continue
-                    if line.startswith('data: '):
-                        try:
-                            chunk = json.loads(line[6:])
-                            delta = chunk.get('choices', [{}])[0].get('delta', {})
-                            content = delta.get('content', '')
-                            if content:
-                                accumulated.append(content)
-
-                                # Progress updates
-                                now = time.time()
-                                if progress_callback and (now - last_update) > update_interval:
-                                    preview = ''.join(accumulated)[-300:]
-                                    try:
-                                        await progress_callback(preview)
-                                    except:
-                                        pass
-                                    last_update = now
-                        except json.JSONDecodeError:
-                            continue
-
-        final_text = ''.join(accumulated)
-        latency = time.time() - start_time
-
-        metrics = {
-            'latency': round(latency, 2),
-            'output_chars': len(final_text),
-            'output_tokens': int(len(final_text) / 4),
-            'streaming': True,
-            'success': True
-        }
-
-        return final_text, metrics
-
-    @staticmethod
-    async def _non_stream_request(api: APIProvider, payload: Dict) -> Tuple[str, Dict]:
-        """Fallback non-streaming request."""
-        start_time = time.time()
-        payload["stream"] = False
-
-        timeout = aiohttp.ClientTimeout(total=Config.API_TIMEOUT, connect=30)
-
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                f"{api.base}/chat/completions",
-                headers=api.headers(),
-                json=payload
-            ) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    raise Exception(f"HTTP {resp.status}: {text[:300]}")
-
-                result = await resp.json()
-
-        content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
-        latency = time.time() - start_time
-
-        return content, {
-            'latency': round(latency, 2),
-            'output_chars': len(content),
-            'output_tokens': int(len(content) / 4),
-            'streaming': False,
-            'success': True
-        }
-
-    @staticmethod
-    async def agent_generate(model_id: str, provider: str, messages: List[Dict],
-                             step_name: str = "generating",
-                             status_msg: Optional[Message] = None) -> Tuple[str, Dict]:
-        """Specialized generation for agent mode with step tracking."""
-        if status_msg:
-            try:
-                await status_msg.edit_text(
-                    f"🤖 *Agent Step: {step_name}*\n⏳ Processing with {model_id}...",
-                    parse_mode=TPM.MARKDOWN
-                )
-            except:
-                pass
-
-        return await StreamingHandler.chat_complete(
-            model_id, provider, messages, status_msg, None, temperature=0.6
-        )
-
-# ============================================================================
-# 📊 DATA MODELS
-# ============================================================================
+# ============================ DATA MODELS ============================
 
 @dataclass
-class UsageStats:
+class UserStats:
     total_requests: int = 0
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    total_cost_vnd: float = 0.0
     total_latency: float = 0.0
-    models_used: Dict[str, int] = field(default_factory=dict)
-    task_types: Dict[str, int] = field(default_factory=dict)
-    first_seen: str = field(default_factory=lambda: datetime.now().isoformat())
-    last_active: str = field(default_factory=lambda: datetime.now().isoformat())
-    agent_tasks_completed: int = 0
-    agent_tasks_failed: int = 0
-
-    def record(self, input_tokens: int, output_tokens: int, latency: float, 
-               model_id: str, task_type: TaskType):
-        self.total_requests += 1
-        self.total_input_tokens += input_tokens
-        self.total_output_tokens += output_tokens
-        self.total_latency += latency
-        self.models_used[model_id] = self.models_used.get(model_id, 0) + 1
-        self.task_types[task_type.value] = self.task_types.get(task_type.value, 0) + 1
-        self.last_active = datetime.now().isoformat()
-
-    @property
-    def avg_latency(self) -> float:
-        return self.total_latency / self.total_requests if self.total_requests > 0 else 0.0
-
-    @property
-    def total_tokens(self) -> int:
-        return self.total_input_tokens + self.total_output_tokens
-
-@dataclass
-class AgentCheckpoint:
-    step: str
-    timestamp: str
-    status: str  # success, warning, error
-    data: Dict[str, Any]
-    duration_ms: int = 0
+    tasks_completed: int = 0
+    tasks_failed: int = 0
+    files_processed: int = 0
+    code_executed: int = 0
+    first_seen: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    last_active: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 @dataclass
 class AgentTask:
     task_id: str
-    user_id: int
     description: str
-    status: str = "pending"  # pending, analyzing, planning, coding, validating, fixing, deploying, completed, failed
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    checkpoints: List[AgentCheckpoint] = field(default_factory=list)
+    status: str = "pending"
+    created_at: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    completed_at: Optional[str] = None
     result: Optional[str] = None
     error: Optional[str] = None
-    error_details: Optional[str] = None
     files_created: List[str] = field(default_factory=list)
-    file_contents: Dict[str, str] = field(default_factory=dict)
-    local_path: Optional[str] = None
     repo_url: Optional[str] = None
-    repo_name: Optional[str] = None
-    metrics: Dict[str, Any] = field(default_factory=dict)
-    model_used: Optional[str] = None
-    provider_used: Optional[str] = None
-    auto_retry_count: int = 0
-    deploy_mode: str = "local"
-    detected_language: str = "python"
-    dependencies: List[str] = field(default_factory=list)
+    plan: Optional[str] = None
+    code_review: Optional[str] = None
+    test_results: Optional[str] = None
+    cost_vnd: float = 0.0
 
-    def add_checkpoint(self, step: str, status: str, data: Dict, duration_ms: int = 0):
-        self.checkpoints.append(AgentCheckpoint(
-            step=step,
-            timestamp=datetime.now().isoformat(),
-            status=status,
-            data=data,
-            duration_ms=duration_ms
-        ))
-        self.updated_at = datetime.now().isoformat()
-        # Keep only last 10 checkpoints to save memory
-        if len(self.checkpoints) > 10:
-            self.checkpoints = self.checkpoints[-10:]
+@dataclass
+class KnowledgeDocument:
+    doc_id: str
+    filename: str
+    content: str
+    embedding: Optional[List[float]] = None
+    uploaded_at: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    chunk_count: int = 0
 
-    def to_summary(self) -> str:
-        return {
-            "task_id": self.task_id,
-            "status": self.status,
-            "files": len(self.files_created),
-            "retries": self.auto_retry_count,
-            "model": self.model_used,
-            "deploy": self.deploy_mode
-        }
+@dataclass
+class ScheduledJob:
+    job_id: str
+    user_id: int
+    description: str
+    trigger_time: datetime
+    command: str
+    args: str
+    is_recurring: bool = False
+    cron_expr: Optional[str] = None
+    created_at: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+@dataclass
+class ConversationBranch:
+    branch_id: str
+    parent_id: Optional[str]
+    name: str
+    messages: List[Dict[str, str]] = field(default_factory=list)
+    created_at: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+@dataclass
+class UserPreferences:
+    language: str = "auto"
+    code_style: str = "pep8"
+    verbosity: str = "balanced"
+    theme: str = "default"
+    auto_execute: bool = False
+    default_mode: str = "chat"
+    preferred_models: Dict[str, str] = field(default_factory=dict)
+    notifications: bool = True
 
 @dataclass
 class ConversationState:
     history: List[Dict[str, str]] = field(default_factory=list)
-    mode: str = "chat"  # chat, agent, embed, tts
-    current_model: str = Config.DEFAULT_CHAT_MODEL
-    current_provider: str = "nvidia"
-    auto_model: bool = True
-    usage: UsageStats = field(default_factory=UsageStats)
+    mode: str = DEFAULT_MODE
+    current_model: str = DEFAULT_CHAT_MODEL
+    stats: UserStats = field(default_factory=UserStats)
     agent_tasks: List[AgentTask] = field(default_factory=list)
-    preferred_style: str = "balanced"  # concise, balanced, verbose
-    language_hint: str = "auto"
-    budget_conscious: bool = True
+    github_username: Optional[str] = None
+    preferred_style: str = "clean"
+    last_error: Optional[str] = None
     self_notes: List[str] = field(default_factory=list)
-    error_patterns: Dict[str, int] = field(default_factory=dict)
-    successful_patterns: Dict[str, int] = field(default_factory=dict)
-    agent_deploy_mode: str = "local"  # local, github, both
-    last_model_suggestion: Optional[str] = None
+    knowledge_base: List[KnowledgeDocument] = field(default_factory=list)
+    branches: Dict[str, ConversationBranch] = field(default_factory=dict)
+    current_branch_id: str = "main"
+    preferences: UserPreferences = field(default_factory=UserPreferences)
+    scheduled_jobs: List[ScheduledJob] = field(default_factory=list)
+    temp_files: List[str] = field(default_factory=list)
+    context_summary: Optional[str] = None
 
-    def add_note(self, note: str, success: bool = True):
-        sig = note[:200].strip()
-        if success:
-            self.successful_patterns[sig] = self.successful_patterns.get(sig, 0) + 1
-            if sig not in self.self_notes:
-                self.self_notes.append(f"✅ {sig}")
-        else:
-            self.error_patterns[sig] = self.error_patterns.get(sig, 0) + 1
-            if sig not in self.self_notes:
-                self.self_notes.append(f"❌ {sig}")
+# ============================ STATE MANAGEMENT ============================
 
-        if len(self.self_notes) > Config.MAX_SELF_NOTES:
-            self.self_notes = self.self_notes[-Config.MAX_SELF_NOTES:]
+user_states: Dict[int, ConversationState] = {}
+scheduled_jobs_global: List[ScheduledJob] = []
 
-    def get_adaptive_prompt(self, base: str, mode: str = "chat") -> str:
-        prompt = base
+async def get_user_state(user_id: int) -> ConversationState:
+    if user_id not in user_states:
+        user_states[user_id] = ConversationState()
+        main_branch = ConversationBranch("main", None, "Main Conversation")
+        user_states[user_id].branches["main"] = main_branch
+    return user_states[user_id]
 
-        if self.preferred_style == "concise":
-            prompt += "\n\n[STYLE: Be extremely concise. Minimal explanations. Focus on code quality.]"
-        elif self.preferred_style == "verbose":
-            prompt += "\n\n[STYLE: Provide detailed explanations, examples, and thorough documentation.]"
-        else:
-            prompt += "\n\n[STYLE: Balanced — clear explanations with efficient code.]"
+def generate_task_id() -> str:
+    return f"task_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
 
-        if self.language_hint == "vi":
-            prompt += "\n\n[LANGUAGE: Respond in Vietnamese for natural language, English for all code.]"
-        elif self.language_hint == "auto":
-            prompt += "\n\n[LANGUAGE: Detect user's language and respond accordingly. Code always in English.]"
+def generate_doc_id() -> str:
+    return f"doc_{uuid.uuid4().hex[:8]}"
 
-        # Inject learned patterns
-        if self.successful_patterns:
-            top = sorted(self.successful_patterns.items(), key=lambda x: -x[1])[:3]
-            if top:
-                prompt += "\n\n[PREFERRED APPROACHES:\n" + "\n".join(f"- {p}" for p, _ in top) + "]"
+def generate_branch_id() -> str:
+    return f"branch_{uuid.uuid4().hex[:6]}"
 
-        if mode == "agent":
-            prompt += "\n\n[AGENT MODE: You MUST output complete, runnable code. Use file markers. Include error handling.]"
+def generate_job_id() -> str:
+    return f"job_{uuid.uuid4().hex[:8]}"
 
-        return prompt
+def get_mode_models(mode: str):
+    return MODE_CONFIG[mode]["models"]
 
-    def get_recent_context(self, max_messages: int = 30) -> List[Dict]:
-        """Get recent history with smart compression."""
-        if len(self.history) <= max_messages:
-            return self.history
-        if Config.CONTEXT_COMPRESSION:
-            return ContextCompressor.compress_history(self.history)
-        return self.history[-max_messages:]
+def get_default_model(mode: str):
+    return MODE_CONFIG[mode]["default"]
 
-# ============================================================================
-# 🗄️ PERSISTENT STATE STORE
-# ============================================================================
+def get_model_display(mode: str, model_id: str) -> str:
+    for cat, mid, disp, tier, inp, out in MODE_CONFIG[mode]["models"]:
+        if mid == model_id:
+            return f"{CATEGORY_EMOJI.get(tier, '⚪')} {CATEGORY_EMOJI.get(cat, '⚪')} {disp.split(' (')[0]}"
+    return model_id
 
-class StateStore:
-    """Thread-safe async state persistence with auto-save."""
+def get_model_category(mode: str, model_id: str) -> str:
+    for cat, mid, disp, tier, inp, out in MODE_CONFIG[mode]["models"]:
+        if mid == model_id:
+            return cat
+    return "Khác"
 
-    def __init__(self, file_path: Path):
-        self.file_path = file_path
-        self._cache: Dict[int, ConversationState] = {}
-        self._lock = asyncio.Lock()
-        self._dirty: Set[int] = set()
-        self._last_save = time.time()
-        self._load()
+def get_model_tier(mode: str, model_id: str) -> str:
+    for cat, mid, disp, tier, inp, out in MODE_CONFIG[mode]["models"]:
+        if mid == model_id:
+            return tier
+    return "Unknown"
 
-    def _load(self):
-        if self.file_path.exists():
+def estimate_cost(model_id: str, input_tokens: int, output_tokens: int) -> float:
+    if model_id not in MODEL_PRICING:
+        return 0.0
+    inp_price, out_price = MODEL_PRICING[model_id]
+    return (input_tokens * inp_price / 1_000_000) + (output_tokens * out_price / 1_000_000)
+
+# ============================ UTILITIES ============================
+
+def estimate_tokens(text: str) -> int:
+    if not text:
+        return 0
+    return max(1, len(text.encode('utf-8')) // 4)
+
+def truncate_text(text: str, max_len: int = 4000) -> str:
+    if len(text) <= max_len:
+        return text
+    return text[:max_len - 3] + "..."
+
+def sanitize_filename(name: str) -> str:
+    return re.sub(r'[^a-zA-Z0-9_\-]', '_', name)[:50]
+
+def sanitize_repo_name(name: str) -> str:
+    name = re.sub(r'[^a-zA-Z0-9_-]', '-', name.lower().strip())
+    name = re.sub(r'-+', '-', name).strip('-')
+    return name or "denia-project"
+
+def format_vnd(amount: float) -> str:
+    if amount >= 1000:
+        return f"{amount/1000:.1f}k"
+    return f"{amount:.0f}"
+
+def build_progress_bar(step: int, total: int, width: int = 20) -> str:
+    filled = int(width * step / total)
+    return "█" * filled + "░" * (width - filled)
+
+async def send_long_text(update: Update, text: str, filename: str = "response.txt", caption: str = None):
+    if not text:
+        return
+
+    if len(text) <= TELEGRAM_MSG_LIMIT:
+        try:
+            await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
             try:
-                with open(self.file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                for uid_str, state_data in data.items():
-                    uid = int(uid_str)
-                    # Reconstruct nested dataclasses
-                    if 'usage' in state_data and isinstance(state_data['usage'], dict):
-                        state_data['usage'] = UsageStats(**state_data['usage'])
-                    if 'agent_tasks' in state_data and isinstance(state_data['agent_tasks'], list):
-                        tasks = []
-                        for t in state_data['agent_tasks']:
-                            if 'checkpoints' in t:
-                                t['checkpoints'] = [AgentCheckpoint(**c) for c in t['checkpoints']]
-                            tasks.append(AgentTask(**t))
-                        state_data['agent_tasks'] = tasks
-                    self._cache[uid] = ConversationState(**state_data)
-                logging.info(f"📥 Loaded {len(self._cache)} user states from {self.file_path}")
-            except Exception as e:
-                logging.warning(f"⚠️ Failed to load states: {e}")
-                self._cache = {}
-
-    async def _save(self, force: bool = False):
-        async with self._lock:
-            if not force and not self._dirty:
-                return
-
-            try:
-                data = {}
-                for uid, state in self._cache.items():
-                    state_dict = asdict(state)
-                    # Convert dataclasses to dicts
-                    state_dict['usage'] = asdict(state.usage)
-                    state_dict['agent_tasks'] = [
-                        {**asdict(t), 'checkpoints': [asdict(c) for c in t.checkpoints]}
-                        for t in state.agent_tasks
-                    ]
-                    data[str(uid)] = state_dict
-
-                temp_file = self.file_path.with_suffix('.tmp')
-                with open(temp_file, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-
-                # Atomic replace
-                temp_file.replace(self.file_path)
-                self._dirty.clear()
-                self._last_save = time.time()
-                logging.debug("💾 State saved")
-            except Exception as e:
-                logging.error(f"❌ Failed to save states: {e}")
-
-    async def save_user(self, user_id: int):
-        self._dirty.add(user_id)
-        # Auto-save if enough time passed
-        if time.time() - self._last_save > Config.STATE_SAVE_INTERVAL:
-            await self._save()
-
-    async def force_save(self):
-        await self._save(force=True)
-
-    def get(self, user_id: int) -> ConversationState:
-        if user_id not in self._cache:
-            self._cache[user_id] = ConversationState()
-        return self._cache[user_id]
-
-    def cleanup_old_tasks(self, hours: int = 72):
-        cutoff = datetime.now() - timedelta(hours=hours)
-        removed = 0
-        for state in self._cache.values():
-            original = len(state.agent_tasks)
-            state.agent_tasks = [
-                t for t in state.agent_tasks 
-                if datetime.fromisoformat(t.created_at.replace('Z', '+00:00').replace('+00:00', '')) > cutoff
-            ]
-            removed += original - len(state.agent_tasks)
-        if removed > 0:
-            logging.info(f"🗑️ Cleaned {removed} old agent tasks")
-
-    async def periodic_save(self):
-        """Background task for periodic saves."""
-        while True:
-            await asyncio.sleep(Config.STATE_SAVE_INTERVAL)
-            if self._dirty:
-                await self._save()
-
-state_store = StateStore(Config.WORK_DIR / "states_v9.json")
-
-def get_user_state(user_id: int) -> ConversationState:
-    return state_store.get(user_id)
-
-# ============================================================================
-# ⏱️ RATE LIMITER
-# ============================================================================
-
-class RateLimiter:
-    """Token bucket style rate limiter."""
-
-    def __init__(self, rate: int, window: float = 60.0):
-        self.rate = rate
-        self.window = window
-        self.buckets: Dict[Any, List[float]] = {}
-        self._lock = asyncio.Lock()
-
-    async def allow(self, key: Any) -> Tuple[bool, float]:
-        async with self._lock:
-            now = time.time()
-            if key not in self.buckets:
-                self.buckets[key] = []
-
-            # Clean old entries
-            self.buckets[key] = [t for t in self.buckets[key] if now - t < self.window]
-
-            if len(self.buckets[key]) >= self.rate:
-                oldest = min(self.buckets[key])
-                wait = self.window - (now - oldest)
-                return False, max(0.0, wait)
-
-            self.buckets[key].append(now)
-            return True, 0.0
-
-    async def get_status(self, key: Any) -> Dict:
-        async with self._lock:
-            now = time.time()
-            if key not in self.buckets:
-                return {"used": 0, "limit": self.rate, "remaining": self.rate}
-            valid = [t for t in self.buckets[key] if now - t < self.window]
-            return {
-                "used": len(valid),
-                "limit": self.rate,
-                "remaining": max(0, self.rate - len(valid))
-            }
-
-user_limiter = RateLimiter(Config.USER_REQUESTS_PER_MIN)
-global_limiter = RateLimiter(Config.GLOBAL_REQUESTS_PER_MIN)
-
-async def rate_limit_check(update: Update) -> Tuple[bool, Optional[str]]:
-    user_id = update.effective_user.id if update.effective_user else "unknown"
-
-    allowed, wait = await global_limiter.allow("global")
-    if not allowed:
-        return False, f"🌍 *Server đang bận.*\n⏳ Vui lòng thử lại sau `{wait:.0f}` giây."
-
-    allowed, wait = await user_limiter.allow(user_id)
-    if not allowed:
-        return False, f"⏱ *Bạn gửi quá nhanh!*\n⏳ Đợi `{wait:.0f}` giây để tiếp tục."
-
-    return True, None
-
-# ============================================================================
-# 📁 ADVANCED FILE PARSER & CODE EXTRACTOR
-# ============================================================================
-
-class FileExtractor:
-    """Multi-strategy code file extractor with conflict resolution."""
-
-    # Strategy: (regex_pattern, filename_group, content_group, priority)
-    STRATEGIES = [
-        # Explicit file markers (highest priority)
-        (
-            re.compile(r'<<<FILE:\s*([^>\n]+?)\s*>>>(.*?)<<<ENDFILE>>>', re.DOTALL | re.IGNORECASE),
-            1, 2, 10
-        ),
-        # Markdown code block with filename in comment
-        (
-            re.compile(r'```(?:\w+)?\s*\n?\s*#\s*filename:\s*([^\n]+)\s*\n(.*?)```', re.DOTALL | re.IGNORECASE),
-            1, 2, 9
-        ),
-        # Markdown with filename on same line as opening backticks
-        (
-            re.compile(r'```(?:\w+)?\s+([^\n`]+?\\.\w+)\s*\n(.*?)```', re.DOTALL | re.IGNORECASE),
-            1, 2, 8
-        ),
-        # Header-style file declarations
-        (
-            re.compile(r'^#\s*File:\s*([^\n]+)\s*\n(.*?)(?=\n^#\s*File:|\Z)', re.DOTALL | re.MULTILINE | re.IGNORECASE),
-            1, 2, 7
-        ),
-        # Python __file__ or module declarations
-        (
-            re.compile(r'#\s*\\-\\*\\-.*?file:\s*([^\n]+).*?\n(.*?)\n#\s*end\s+file', re.DOTALL | re.IGNORECASE),
-            1, 2, 6
-        ),
-    ]
-
-    DANGEROUS_PATTERNS = ['../', '..\\', '/etc/', '/proc/', 'null', 'undefined', '<', '>', '|', '\\0']
-
-    @classmethod
-    def extract(cls, text: str) -> Dict[str, str]:
-        """Extract files from AI response with priority handling."""
-        all_matches = []
-
-        for pattern, fname_group, content_group, priority in cls.STRATEGIES:
-            for match in pattern.finditer(text):
-                try:
-                    fname = match.group(fname_group).strip().strip('`').strip()
-                    content = match.group(content_group).strip()
-                    if cls._is_valid_filename(fname) and content:
-                        all_matches.append((priority, fname, content, match.start()))
-                except:
-                    continue
-
-        if not all_matches:
-            # Fallback: detect if entire text is code
-            if cls._looks_like_code(text):
-                ext = cls._detect_language(text)
-                return {f"main.{ext}": text.strip()}
-            return {}
-
-        # Sort by priority (high first) then position
-        all_matches.sort(key=lambda x: (-x[0], x[3]))
-
-        # Resolve conflicts: keep highest priority for each filename
-        files = {}
-        for priority, fname, content, pos in all_matches:
-            safe_name = cls._sanitize_filename(fname)
-            if safe_name not in files:
-                files[safe_name] = content
-
-        return files
-
-    @classmethod
-    def _is_valid_filename(cls, filename: str) -> bool:
-        if not filename or len(filename) > 255:
-            return False
-        if any(d in filename.lower() for d in cls.DANGEROUS_PATTERNS):
-            return False
-        if filename.count('.') > 3 or filename.startswith('.'):
-            return False
-        return True
-
-    @classmethod
-    def _sanitize_filename(cls, filename: str) -> str:
-        name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', filename)
-        name = name.strip('. ')
-        if len(name) > 200:
-            base, ext = os.path.splitext(name)
-            name = base[:195] + ext
-        if not name or name.startswith('_'):
-            name = f"file_{hashlib.md5(filename.encode()).hexdigest()[:8]}.txt"
-        return name
-
-    @classmethod
-    def _looks_like_code(cls, text: str) -> bool:
-        indicators = [
-            r'\b(import|from|class|def|function|const|let|var|#include|package)\b',
-            r'\{\s*\w+\s*:\s*',
-            r'->\s*\w+',
-            r'^(const|let|var|def|class|function|import)\s+',
-            r'\b(main|if __name__|public static|func main)\b'
-        ]
-        return any(re.search(p, text, re.MULTILINE | re.IGNORECASE) for p in indicators)
-
-    @classmethod
-    def _detect_language(cls, text: str) -> str:
-        if re.search(r'\bimport\s+\w+|from\s+\w+\s+import', text): return 'py'
-        if re.search(r'\bfunction\s+\w+|const\s+\w+\s*=|require\\(', text): return 'js'
-        if re.search(r'\binterface\s+\w+|:\s*(string|number|boolean)\b', text): return 'ts'
-        if re.search(r'#include|int main\\(|cout <<', text): return 'cpp'
-        if re.search(r'package main|func main|import "', text): return 'go'
-        if re.search(r'<!DOCTYPE|<html|<div', text, re.IGNORECASE): return 'html'
-        return 'txt'
-
-    @classmethod
-    def auto_generate_dependencies(cls, files: Dict[str, str]) -> Dict[str, str]:
-        """Auto-generate requirements.txt, package.json, etc. if missing."""
-        extras = {}
-
-        # Python detection
-        if any(f.endswith('.py') for f in files):
-            if 'requirements.txt' not in files and 'pyproject.toml' not in files:
-                imports = set()
-                for content in files.values():
-                    for match in re.finditer(r'^(?:from|import)\s+([a-zA-Z_][a-zA-Z0-9_]*)', content, re.MULTILINE):
-                        imports.add(match.group(1))
-
-                stdlib = {'os', 'sys', 'json', 're', 'time', 'datetime', 'pathlib', 'typing', 
-                         'collections', 'asyncio', 'io', 'base64', 'hashlib', 'logging', 'traceback',
-                         'dataclasses', 'enum', 'math', 'random', 'string', 'inspect'}
-                deps = sorted(imports - stdlib)
-                if deps:
-                    extras['requirements.txt'] = "\n".join(f"{d}" for d in deps) + "\n"
-
-        # Node.js detection
-        if any(f.endswith(('.js', '.ts', '.tsx')) for f in files):
-            if 'package.json' not in files:
-                imports = set()
-                for content in files.values():
-                    for match in re.finditer(r"require\\(['\"]([^'\"]+)['\"]\\)|import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]", content):
-                        dep = match.group(1) or match.group(2)
-                        if dep and not dep.startswith('.') and not dep.startswith('@types/'):
-                            imports.add(dep.split('/')[0])
-
-                if imports:
-                    pkg = {
-                        "name": "auto-generated-project",
-                        "version": "1.0.0",
-                        "dependencies": {dep: "latest" for dep in sorted(imports)}
-                    }
-                    extras['package.json'] = json.dumps(pkg, indent=2) + "\n"
-
-        return extras
-
-# ============================================================================
-# 🔍 SMART SYNTAX VALIDATOR
-# ============================================================================
-
-class SyntaxValidator:
-    """Multi-language syntax validation with fix suggestions."""
-
-    @classmethod
-    def validate(cls, code: str, filename: str) -> List[Dict]:
-        ext = Path(filename).suffix.lower()
-        issues = []
-
-        if ext == '.py':
-            issues.extend(cls._validate_python(code, filename))
-        elif ext in ['.js', '.ts', '.tsx']:
-            issues.extend(cls._validate_js_ts(code, filename))
-        elif ext == '.json':
-            issues.extend(cls._validate_json(code, filename))
-        elif ext in ['.yml', '.yaml']:
-            issues.extend(cls._validate_yaml(code, filename))
-        elif ext == '.html':
-            issues.extend(cls._validate_html(code, filename))
-
-        # General checks
-        issues.extend(cls._validate_general(code, filename))
-        return issues
-
-    @staticmethod
-    def _validate_python(code: str, filename: str) -> List[Dict]:
-        issues = []
-        try:
-            compile(code, filename, 'exec')
-        except SyntaxError as e:
-            return [{
-                "level": "error",
-                "line": e.lineno,
-                "message": f"Python syntax error: {e.msg}",
-                "suggestion": "Check indentation, colons, quotes, or parentheses near this line."
-            }]
-
-        # Warnings
-        if re.search(r'\bexcept\s*:', code) and not re.search(r'\bexcept\s+\w+', code):
-            issues.append({
-                "level": "warning",
-                "line": None,
-                "message": "Bare `except:` clause detected",
-                "suggestion": "Use `except Exception:` or specific exceptions."
-            })
-
-        if 'print(' in code and 'logging' not in code and len(code) > 500:
-            issues.append({
-                "level": "info",
-                "line": None,
-                "message": "Using print() statements",
-                "suggestion": "Consider using the `logging` module for production code."
-            })
-
-        if re.search(r'\binput\s*\\(', code):
-            issues.append({
-                "level": "warning",
-                "line": None,
-                "message": "Interactive input() detected",
-                "suggestion": "For bots/APIs, use environment variables or config files instead of input()."
-            })
-
-        return issues
-
-    @staticmethod
-    def _validate_js_ts(code: str, filename: str) -> List[Dict]:
-        issues = []
-
-        # Brace matching (simple)
-        open_braces = code.count('{') - code.count('}')
-        if open_braces != 0:
-            issues.append({
-                "level": "error" if abs(open_braces) > 2 else "warning",
-                "line": None,
-                "message": f"Mismatched braces: {open_braces} unclosed",
-                "suggestion": "Check all opening '{' have matching '}'."
-            })
-
-        # Parentheses matching
-        open_parens = code.count('(') - code.count(')')
-        if open_parens != 0:
-            issues.append({
-                "level": "error" if abs(open_parens) > 2 else "warning",
-                "line": None,
-                "message": f"Mismatched parentheses: {open_parens} unclosed",
-                "suggestion": "Check all function calls and expressions."
-            })
-
-        if 'console.log' in code and 'debug' not in filename.lower():
-            issues.append({
-                "level": "info",
-                "line": None,
-                "message": "console.log found",
-                "suggestion": "Remove console.log in production or replace with a logger."
-            })
-
-        return issues
-
-    @staticmethod
-    def _validate_json(code: str, filename: str) -> List[Dict]:
-        try:
-            json.loads(code)
-            return []
-        except json.JSONDecodeError as e:
-            return [{
-                "level": "error",
-                "line": e.lineno if hasattr(e, 'lineno') else None,
-                "message": f"JSON parse error: {e.msg}",
-                "suggestion": "Check for trailing commas, missing quotes, or brackets."
-            }]
-
-    @staticmethod
-    def _validate_yaml(code: str, filename: str) -> List[Dict]:
-        try:
-            import yaml
-            yaml.safe_load(code)
-            return []
-        except Exception as e:
-            return [{
-                "level": "error",
-                "line": getattr(e, 'problem_mark', None).line if hasattr(e, 'problem_mark') and e.problem_mark else None,
-                "message": f"YAML error: {str(e)[:100]}",
-                "suggestion": "Check indentation (must be spaces, not tabs) and colon spacing."
-            }]
-
-    @staticmethod
-    def _validate_html(code: str, filename: str) -> List[Dict]:
-        issues = []
-        open_tags = len(re.findall(r'<\w+[^>]*>', code))
-        close_tags = len(re.findall(r'</\w+>', code))
-        self_closing = len(re.findall(r'<\w+[^>]*/>', code))
-
-        if open_tags > close_tags + self_closing + 2:
-            issues.append({
-                "level": "warning",
-                "line": None,
-                "message": "Potentially unclosed HTML tags",
-                "suggestion": "Verify all opened tags are properly closed."
-            })
-        return issues
-
-    @staticmethod
-    def _validate_general(code: str, filename: str) -> List[Dict]:
-        issues = []
-        if len(code) > 10000 and '\n' not in code[:1000]:
-            issues.append({
-                "level": "warning",
-                "line": None,
-                "message": "Code appears to be minified or lacks proper formatting",
-                "suggestion": "Add proper line breaks and indentation for readability."
-            })
-        return issues
-
-    @classmethod
-    def format_issues(cls, issues: List[Dict]) -> str:
-        if not issues:
-            return "✅ No issues found"
-
-        lines = []
-        for issue in issues:
-            emoji = {"error": "❌", "warning": "⚠️", "info": "ℹ️"}.get(issue['level'], "•")
-            line_info = f" (line {issue['line']})" if issue.get('line') else ""
-            lines.append(f"{emoji} **{issue['level'].upper()}**{line_info}: {issue['message']}\n   💡 {issue['suggestion']}")
-        return "\n\n".join(lines)
-
-# ============================================================================
-# 📦 LOCAL PACKAGE BUILDER
-# ============================================================================
-
-class PackageBuilder:
-    """Builds deployable ZIP packages with auto-documentation."""
-
-    @classmethod
-    async def create_package(cls, task_id: str, files: Dict[str, str], 
-                            metadata: Dict, task: AgentTask) -> Tuple[Path, int]:
-        task_dir = Config.WORK_DIR / "agents" / task_id
-        task_dir.mkdir(parents=True, exist_ok=True)
-
-        # Write all files
-        total_size = 0
-        for filename, content in files.items():
-            file_path = task_dir / filename
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-            file_path.write_text(content, encoding='utf-8')
-            total_size += file_path.stat().st_size
-
-        # Write metadata
-        meta = {
-            **metadata,
-            "created_at": datetime.now().isoformat(),
-            "denia_version": "9.0",
-            "files_count": len(files),
-            "task_id": task_id,
-            "model": task.model_used,
-            "dependencies": task.dependencies
-        }
-        (task_dir / ".denia_meta.json").write_text(
-            json.dumps(meta, indent=2, ensure_ascii=False), encoding='utf-8'
-        )
-
-        # Generate README if missing
-        if "README.md" not in files and "readme.md" not in files:
-            readme = cls._generate_readme(metadata, files, task)
-            (task_dir / "README.md").write_text(readme, encoding='utf-8')
-            total_size += len(readme.encode('utf-8'))
-
-        # Generate .env.example if env vars detected
-        env_vars = set()
-        for content in files.values():
-            for match in re.finditer(r'os\\.getenv\\(["\']([A-Z_][A-Z0-9_]*)', content):
-                env_vars.add(match.group(1))
-            for match in re.finditer(r'process\\.env\\.([A-Z_][A-Z0-9_]*)', content):
-                env_vars.add(match.group(1))
-
-        if env_vars and ".env.example" not in files:
-            env_example = "# Environment Variables\n" + "\n".join(f"{v}=your_{v.lower().replace('_', '_')}_here" for v in sorted(env_vars))
-            (task_dir / ".env.example").write_text(env_example + "\n", encoding='utf-8')
-
-        # Create ZIP
-        zip_path = Config.WORK_DIR / "zips" / f"{task_id}.zip"
-        zip_path.parent.mkdir(exist_ok=True)
-
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
-            for fp in task_dir.rglob('*'):
-                if fp.is_file():
-                    zf.write(fp, fp.relative_to(task_dir))
-
-        zip_size = zip_path.stat().st_size
-        logging.info(f"📦 Package created: {zip_path.name} ({zip_size/1024:.1f}KB, {len(files)} files)")
-        return zip_path, zip_size
-
-    @staticmethod
-    def _generate_readme(meta: Dict, files: Dict[str, str], task: AgentTask) -> str:
-        desc = meta.get('description', 'Auto-generated project')[:250]
-
-        # Build file tree
-        tree_lines = []
-        for f in sorted(files.keys()):
-            size = len(files[f])
-            tree_lines.append(f"- `{f}` ({size} chars)")
-
-        # Detect setup command
-        setup = ""
-        if "requirements.txt" in files:
-            setup = """### Python Setup
-```bash
-pip install -r requirements.txt
-python main.py
-```"""
-        elif "package.json" in files:
-            setup = """### Node.js Setup
-```bash
-npm install
-npm start
-```"""
-        elif any(f.endswith('.py') for f in files):
-            setup = """### Run
-```bash
-python main.py
-```"""
-        elif any(f.endswith('.js') for f in files):
-            setup = """### Run
-```bash
-node main.js
-```"""
-
-        deps_section = ""
-        if task.dependencies:
-            deps_section = f"""### Dependencies
-{chr(10).join(f'- `{d}`' for d in task.dependencies[:10])}
-"""
-
-        return f"""# 🤖 {meta.get('task_id', 'Project')}
-
-> {desc}
-
-## 📁 Files ({len(files)})
-
-{chr(10).join(tree_lines)}
-
-{deps_section}
-## 🚀 Quick Start
-
-{setup}
-
-## 📊 Generation Info
-
-- **Model**: `{task.model_used or 'unknown'}`
-- **Task ID**: `{task.task_id}`
-- **Created**: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-- **Denia Bot**: v9.0 Pro
-
----
-*Generated by Denia Bot — AI Agent Platform*
-"""
-
-# ============================================================================
-# 🌐 GITHUB MANAGER
-# ============================================================================
-
-class GitHubManager:
-    """Professional GitHub integration with conflict handling."""
-
-    BASE = "https://api.github.com"
-
-    def __init__(self, token: str):
-        self.token = token
-        self.headers = {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Denia-Bot/9.0"
-        }
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._username: Optional[str] = None
-
-    async def _get_session(self) -> aiohttp.ClientSession:
-        if not self._session or self._session.closed:
-            timeout = aiohttp.ClientTimeout(total=60, connect=15)
-            self._session = aiohttp.ClientSession(
-                timeout=timeout,
-                headers={"User-Agent": self.headers["User-Agent"]}
-            )
-        return self._session
-
-    async def _request(self, method: str, endpoint: str, **kwargs) -> Tuple[int, Any]:
-        session = await self._get_session()
-        url = f"{self.BASE}{endpoint}"
-        headers = {**self.headers, **kwargs.pop('headers', {})}
-
-        try:
-            async with session.request(method, url, headers=headers, **kwargs) as resp:
-                try:
-                    data = await resp.json()
-                except:
-                    data = await resp.text()
-                return resp.status, data
-        except Exception as e:
-            logging.error(f"GitHub API error: {e}")
-            return 0, str(e)
-
-    async def verify_auth(self) -> Tuple[bool, str]:
-        status, data = await self._request("GET", "/user")
-        if status == 200 and isinstance(data, dict):
-            self._username = data.get("login", "")
-            return True, self._username
-        return False, str(data)[:200]
-
-    async def get_username(self) -> Optional[str]:
-        if not self._username:
-            await self.verify_auth()
-        return self._username
-
-    async def create_repo(self, name: str, description: str = "", 
-                         private: bool = False, auto_init: bool = True) -> Tuple[bool, str]:
-        payload = {
-            "name": name,
-            "description": description[:300],
-            "private": private,
-            "auto_init": auto_init,
-            "license_template": "mit"
-        }
-        status, data = await self._request("POST", "/user/repos", json=payload)
-
-        if status == 201 and isinstance(data, dict):
-            return True, data.get("html_url", "")
-
-        # Handle existing repo
-        if status == 422 and isinstance(data, dict):
-            errors = data.get("errors", [])
-            if any(e.get("message", "").lower().find("exist") >= 0 for e in errors):
-                username = await self.get_username()
-                if username:
-                    return True, f"https://github.com/{username}/{name}"
-
-        return False, str(data)[:300]
-
-    async def push_files(self, owner: str, repo: str, files: Dict[str, str], 
-                        message: str, branch: str = "main") -> Tuple[bool, str]:
-        """Push multiple files with conflict resolution."""
-        success_count = 0
-        failed_files = []
-
-        for path, content in files.items():
-            encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
-
-            # Check if file exists
-            status, data = await self._request(
-                "GET", 
-                f"/repos/{owner}/{repo}/contents/{path}?ref={branch}"
-            )
-
-            payload = {
-                "message": f"{message[:150]} — {path}",
-                "content": encoded,
-                "branch": branch
-            }
-
-            if status == 200 and isinstance(data, dict) and "sha" in data:
-                payload["sha"] = data["sha"]
-
-            put_status, put_data = await self._request(
-                "PUT",
-                f"/repos/{owner}/{repo}/contents/{path}",
-                json=payload
-            )
-
-            if put_status in (200, 201):
-                success_count += 1
-            else:
-                failed_files.append(f"{path}: {put_status}")
-                logging.warning(f"Failed to push {path}: {put_status}")
-
-            await asyncio.sleep(0.4)  # Rate limit safety
-
-        if success_count == len(files):
-            return True, f"https://github.com/{owner}/{repo}"
-        elif success_count > 0:
-            return True, f"https://github.com/{owner}/{repo} ({success_count}/{len(files)} files)"
-        else:
-            return False, f"Failed to push all files: {', '.join(failed_files[:3])}"
-
-    async def close(self):
-        if self._session and not self._session.closed:
-            await self._session.close()
-
-# Global GitHub instance
-github = GitHubManager(Config.GITHUB_TOKEN)
-
-# ============================================================================
-# 🎯 SYSTEM PROMPTS
-# ============================================================================
-
-SYSTEM_PROMPT_CHAT = """You are Denia Bot v9.0 — an elite AI assistant powered by multiple providers (OpenCode + NVIDIA NIM).
-
-CORE DIRECTIVES:
-1. Provide accurate, helpful responses with clear structure.
-2. For coding questions: give complete, runnable examples with comments.
-3. Adapt to user's language preference automatically.
-4. Use Markdown formatting for readability.
-5. Be concise unless asked for detailed explanations.
-
-When writing code:
-- Include error handling
-- Add docstrings/comments
-- Follow language conventions
-- Never use placeholders like "// TODO" or "..." — always complete the implementation
-"""
-
-SYSTEM_PROMPT_AGENT = """You are Denia Agent v9.0 — an AUTONOMOUS SOFTWARE ENGINEER.
-
-MISSION: Complete software tasks end-to-end with ZERO follow-up questions.
-
-WORKFLOW:
-1. ANALYZE requirements thoroughly
-2. PLAN architecture and file structure
-3. IMPLEMENT complete, production-ready code
-4. INCLUDE all necessary files (main, utils, config, tests if needed)
-
-STRICT RULES:
-- Write COMPLETE code — no placeholders, no pseudocode, no "// your code here"
-- Every function must be fully implemented
-- Include proper error handling, logging, type hints
-- Add requirements.txt or package.json if dependencies exist
-- Follow security best practices (no hardcoded secrets)
-
-OUTPUT FORMAT — You MUST use this exact format for each file:
-
-<<<FILE:filename.py>>>
-[complete file content here]
-<<<ENDFILE>>>
-
-<<<FILE:another_file.js>>>
-[complete file content here]
-<<<ENDFILE>>>
-
-After all files, add:
-<<<META>>>
-dependencies: package1, package2, package3
-main_file: filename.py
-language: python
-<<<ENDMETA>>>
-"""
-
-SYSTEM_PROMPT_AGENT_FIX = """You are Denia Fixer v9.0 — a code repair specialist.
-
-TASK: Fix the provided code errors while preserving all functionality.
-
-RULES:
-1. Output ONLY the corrected files using the <<<FILE:>>> format
-2. Do not add explanations outside the file markers
-3. Ensure syntax is 100% valid
-4. Maintain original logic intent
-5. Add defensive checks where errors occurred
-"""
-
-# ============================================================================
-# 🎨 UI HELPERS
-# ============================================================================
-
-CATEGORY_EMOJI = {
-    "GLM": "🟡", "MiniMax": "🔴", "Mistral": "⚪",
-    "GPT": "🟢", "Claude": "🟣", "Gemini": "🔵",
-    "Qwen": "🟠", "DeepSeek": "⚫", "Khác": "🟦"
-}
-
-PROVIDER_EMOJI = {"opencode": "🟢 OC", "nvidia": "🔵 NV"}
-
-def build_model_keyboard(mode: str, current: str, page: int = 0) -> InlineKeyboardMarkup:
-    """Build paginated model selector."""
-    models = MODE_CONFIG.get(mode, {}).get("models", [])
-    per_page = 6
-    total_pages = max(1, (len(models) + per_page - 1) // per_page)
-    page = max(0, min(page, total_pages - 1))
-    start_idx = page * per_page
-    page_models = models[start_idx:start_idx + per_page]
-
-    keyboard = []
-    for cat, model_id, display, provider in page_models:
-        prefix = "✅ " if model_id == current else ""
-        prov_tag = PROVIDER_EMOJI.get(provider, "⚪")
-        btn = InlineKeyboardButton(
-            f"{prefix}{prov_tag} {display[:20]}",
-            callback_data=f"model_{mode}_{model_id}"
-        )
-        keyboard.append([btn])
-
-    # Navigation
-    nav_row = []
-    if page > 0:
-        nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"models_{mode}_{page-1}"))
-    if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"models_{mode}_{page+1}"))
-    if nav_row:
-        keyboard.append(nav_row)
-
-    keyboard.append([InlineKeyboardButton("🔄 Auto-Select Best", callback_data=f"auto_{mode}")])
-    keyboard.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_main")])
-
-    return InlineKeyboardMarkup(keyboard)
-
-def build_main_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🤖 Agent Mode", callback_data="mode_agent"),
-         InlineKeyboardButton("💬 Chat Mode", callback_data="mode_chat")],
-        [InlineKeyboardButton("📊 My Stats", callback_data="menu_stats"),
-         InlineKeyboardButton("⚙️ Settings", callback_data="menu_settings")],
-        [InlineKeyboardButton("🗑️ Reset Chat", callback_data="menu_reset"),
-         InlineKeyboardButton("❓ Help", callback_data="menu_help")],
-    ])
-
-def build_deploy_keyboard(current: str) -> InlineKeyboardMarkup:
-    options = [
-        ("📦 Local ZIP", "local", current == "local"),
-        ("🌐 GitHub Push", "github", current == "github"),
-        ("🚀 Both", "both", current == "both"),
-    ]
-    keyboard = []
-    for label, value, active in options:
-        prefix = "✅ " if active else ""
-        keyboard.append([InlineKeyboardButton(f"{prefix}{label}", callback_data=f"deploy_{value}")])
-    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="menu_settings")])
-    return InlineKeyboardMarkup(keyboard)
-
-def build_style_keyboard(current: str) -> InlineKeyboardMarkup:
-    styles = [
-        ("⚡ Concise", "concise"),
-        ("⚖️ Balanced", "balanced"),
-        ("📚 Verbose", "verbose"),
-    ]
-    keyboard = []
-    for label, value in styles:
-        prefix = "✅ " if current == value else ""
-        keyboard.append([InlineKeyboardButton(f"{prefix}{label}", callback_data=f"style_{value}")])
-    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="menu_settings")])
-    return InlineKeyboardMarkup(keyboard)
-
-def escape_md(text: str) -> str:
-    """Escape MarkdownV2 special characters."""
-    chars = r'_*[]()~`>#+-=|{}.!'
+                await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+            except Exception:
+                await update.message.reply_text(text)
+        return
+
+    bio = io.BytesIO(text.encode('utf-8'))
+    bio.name = filename
+    cap = caption or f"Phan hoi qua dai ({len(text)} ky tu), da gui duoi dang file."
+    await update.message.reply_document(document=bio, caption=cap)
+
+def build_metrics_footer(metrics: Dict[str, Any], state: ConversationState, model_id: str) -> str:
+    latency = metrics.get('latency', 0)
+    inp = metrics.get('input_tokens', 0)
+    out = metrics.get('output_tokens', 0)
+    total = inp + out
+    tps = metrics.get('tps', 0)
+    cost = estimate_cost(model_id, inp, out)
+
+    state.stats.total_requests += 1
+    state.stats.total_input_tokens += inp
+    state.stats.total_output_tokens += out
+    state.stats.total_latency += latency
+    state.stats.total_cost_vnd += cost
+    state.stats.last_active = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    return (
+        f"\n\n{'━' * 22}\n"
+        f"📊 Metrics — {get_model_display(state.mode, model_id)}\n"
+        f"• ⏱ Latency: `{latency:.2f}s`\n"
+        f"• 📝 Input: `{inp:,}` tok\n"
+        f"• 💬 Output: `{out:,}` tok\n"
+        f"• 📦 Total: `{total:,}` tok\n"
+        f"• ⚡ Speed: `{tps:.1f}` tok/s\n"
+        f"• 💰 Cost: `{format_vnd(cost)}` VND"
+    )
+
+def escape_markdown(text: str) -> str:
+    chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
     for ch in chars:
         text = text.replace(ch, f'\\{ch}')
     return text
 
-def truncate_md(text: str, limit: int = 3500) -> str:
-    """Smart truncate preserving markdown structure."""
-    if len(text) <= limit:
-        return text
-    return text[:limit] + "\n\n... _(content truncated)_"
+# ============================ GITHUB API CLIENT ============================
 
-async def send_long_message(update: Update, text: str, parse_mode: str = TPM.MARKDOWN,
-                           reply_markup=None, caption: str = None):
-    """Send long text as message or document."""
-    if len(text) <= MessageLimit.MAX_TEXT_LENGTH - 100:
-        try:
-            return await update.message.reply_text(text, parse_mode=parse_mode, 
-                                                   reply_markup=reply_markup)
-        except BadRequest as e:
-            if "too long" not in str(e).lower() and "parse" not in str(e).lower():
-                raise
-            # Fallback to plain text if markdown parse fails
+class GitHubAgent:
+    def __init__(self, token: str):
+        self.token = token
+        self.headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json"
+        }
+        self.session: Optional[aiohttp.ClientSession] = None
+        self.rate_limit_remaining = 5000
+        self.rate_limit_reset = 0
+
+    async def init_session(self):
+        if not self.session:
+            self.session = aiohttp.ClientSession()
+
+    async def close(self):
+        if self.session:
+            await self.session.close()
+            self.session = None
+
+    async def _request(self, method: str, endpoint: str, **kwargs) -> Tuple[int, Any, Dict]:
+        await self.init_session()
+        url = f"{GITHUB_API_BASE}{endpoint}"
+        async with self.session.request(method, url, headers=self.headers, **kwargs) as resp:
+            self.rate_limit_remaining = int(resp.headers.get('X-RateLimit-Remaining', 0))
+            self.rate_limit_reset = int(resp.headers.get('X-RateLimit-Reset', 0))
             try:
-                return await update.message.reply_text(text, parse_mode=None,
-                                                       reply_markup=reply_markup)
+                data = await resp.json()
+            except:
+                data = await resp.text()
+            return resp.status, data, dict(resp.headers)
+
+    async def get_user(self) -> Tuple[bool, Dict]:
+        status, data, _ = await self._request("GET", "/user")
+        return status == 200, data
+
+    async def create_repo(self, name: str, description: str = "", private: bool = False, 
+                         auto_init: bool = True, gitignore_template: str = "Python") -> Tuple[bool, Dict]:
+        payload = {
+            "name": name,
+            "description": description,
+            "private": private,
+            "auto_init": auto_init,
+            "gitignore_template": gitignore_template
+        }
+        status, data, _ = await self._request("POST", "/user/repos", json=payload)
+        return status == 201, data
+
+    async def get_repo(self, owner: str, repo: str) -> Tuple[bool, Dict]:
+        status, data, _ = await self._request("GET", f"/repos/{owner}/{repo}")
+        return status == 200, data
+
+    async def create_file(self, owner: str, repo: str, path: str, content: str, 
+                         message: str, branch: str = "main") -> Tuple[bool, Dict]:
+        encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+        payload = {"message": message, "content": encoded, "branch": branch}
+        status, data, _ = await self._request("PUT", f"/repos/{owner}/{repo}/contents/{path}", json=payload)
+        return status in (200, 201), data
+
+    async def get_file(self, owner: str, repo: str, path: str, branch: str = "main") -> Tuple[bool, Dict]:
+        status, data, _ = await self._request("GET", f"/repos/{owner}/{repo}/contents/{path}?ref={branch}")
+        return status == 200, data
+
+    async def update_file(self, owner: str, repo: str, path: str, content: str, 
+                           message: str, sha: str, branch: str = "main") -> Tuple[bool, Dict]:
+        encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+        payload = {"message": message, "content": encoded, "sha": sha, "branch": branch}
+        status, data, _ = await self._request("PUT", f"/repos/{owner}/{repo}/contents/{path}", json=payload)
+        return status in (200, 201), data
+
+    async def delete_file(self, owner: str, repo: str, path: str, message: str, 
+                           sha: str, branch: str = "main") -> Tuple[bool, Dict]:
+        payload = {"message": message, "sha": sha, "branch": branch}
+        status, data, _ = await self._request("DELETE", f"/repos/{owner}/{repo}/contents/{path}", json=payload)
+        return status == 200, data
+
+    async def list_files(self, owner: str, repo: str, path: str = "", branch: str = "main") -> Tuple[bool, List]:
+        endpoint = f"/repos/{owner}/{repo}/contents/{path}?ref={branch}" if path else f"/repos/{owner}/{repo}/contents?ref={branch}"
+        status, data, _ = await self._request("GET", endpoint)
+        if status == 200 and isinstance(data, list):
+            return True, data
+        return False, data if isinstance(data, list) else []
+
+    async def create_branch(self, owner: str, repo: str, new_branch: str, from_branch: str = "main") -> Tuple[bool, Dict]:
+        status, data, _ = await self._request("GET", f"/repos/{owner}/{repo}/git/refs/heads/{from_branch}")
+        if status != 200:
+            return False, data
+        sha = data.get("object", {}).get("sha", "")
+        payload = {"ref": f"refs/heads/{new_branch}", "sha": sha}
+        status, data, _ = await self._request("POST", f"/repos/{owner}/{repo}/git/refs", json=payload)
+        return status == 201, data
+
+    async def create_pr(self, owner: str, repo: str, title: str, head: str, base: str, body: str = "") -> Tuple[bool, Dict]:
+        payload = {"title": title, "head": head, "base": base, "body": body}
+        status, data, _ = await self._request("POST", f"/repos/{owner}/{repo}/pulls", json=payload)
+        return status == 201, data
+
+    async def get_commits(self, owner: str, repo: str, branch: str = "main", per_page: int = 10) -> Tuple[bool, List]:
+        status, data, _ = await self._request("GET", f"/repos/{owner}/{repo}/commits?sha={branch}&per_page={per_page}")
+        if status == 200 and isinstance(data, list):
+            return True, data
+        return False, []
+
+    async def create_issue(self, owner: str, repo: str, title: str, body: str = "", 
+                          labels: List[str] = None) -> Tuple[bool, Dict]:
+        payload = {"title": title, "body": body}
+        if labels:
+            payload["labels"] = labels
+        status, data, _ = await self._request("POST", f"/repos/{owner}/{repo}/issues", json=payload)
+        return status == 201, data
+
+    async def create_release(self, owner: str, repo: str, tag: str, name: str, 
+                              body: str = "", draft: bool = False, prerelease: bool = False) -> Tuple[bool, Dict]:
+        payload = {
+            "tag_name": tag,
+            "name": name,
+            "body": body,
+            "draft": draft,
+            "prerelease": prerelease
+        }
+        status, data, _ = await self._request("POST", f"/repos/{owner}/{repo}/releases", json=payload)
+        return status == 201, data
+
+    async def list_issues(self, owner: str, repo: str, state: str = "open", per_page: int = 10) -> Tuple[bool, List]:
+        status, data, _ = await self._request("GET", f"/repos/{owner}/{repo}/issues?state={state}&per_page={per_page}")
+        if status == 200 and isinstance(data, list):
+            return True, data
+        return False, []
+
+    async def create_workflow(self, owner: str, repo: str, name: str, content: str) -> Tuple[bool, Dict]:
+        path = f".github/workflows/{name}.yml"
+        return await self.create_file(owner, repo, path, content, f"Add CI workflow {name}")
+
+    async def get_readme(self, owner: str, repo: str) -> Tuple[bool, str]:
+        status, data, _ = await self._request("GET", f"/repos/{owner}/{repo}/readme")
+        if status == 200 and isinstance(data, dict):
+            content = data.get("content", "")
+            try:
+                decoded = base64.b64decode(content.replace("\n", "")).decode('utf-8')
+                return True, decoded
+            except:
+                return True, content
+        return False, ""
+
+    async def fork_repo(self, owner: str, repo: str) -> Tuple[bool, Dict]:
+        status, data, _ = await self._request("POST", f"/repos/{owner}/{repo}/forks")
+        return status == 202, data
+
+    async def star_repo(self, owner: str, repo: str) -> Tuple[bool, Dict]:
+        status, data, _ = await self._request("PUT", f"/user/starred/{owner}/{repo}")
+        return status == 204, data
+
+    async def search_repos(self, query: str, per_page: int = 10) -> Tuple[bool, List]:
+        status, data, _ = await self._request("GET", f"/search/repositories?q={query}&per_page={per_page}")
+        if status == 200 and isinstance(data, dict):
+            return True, data.get("items", [])
+        return False, []
+
+github_agent = GitHubAgent(GITHUB_TOKEN)
+
+# ============================ AI API CLIENTS ============================
+
+async def call_chat_api(
+    session: aiohttp.ClientSession,
+    model_id: str,
+    messages: List[Dict[str, str]],
+    status_msg: Any,
+    system_prompt: str = SYSTEM_PROMPT,
+    max_tokens: int = MAX_OUTPUT_TOKENS,
+    temperature: float = 0.7,
+) -> Tuple[str, Dict[str, Any]]:
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {API_KEY}"
+    }
+
+    msgs = []
+    has_system = False
+    for m in messages:
+        if m.get("role") == "system":
+            if not has_system:
+                msgs.append({"role": "system", "content": system_prompt})
+                has_system = True
+        else:
+            msgs.append(m)
+    if not has_system:
+        msgs.insert(0, {"role": "system", "content": system_prompt})
+
+    payload = {
+        "model": model_id,
+        "messages": msgs,
+        "temperature": temperature,
+        "max_tokens": max_tokens
+    }
+
+    start_time = time.time()
+    dots = 0
+
+    async def _update_status():
+        nonlocal dots
+        while True:
+            try:
+                await asyncio.sleep(STATUS_UPDATE_INTERVAL)
+                elapsed = time.time() - start_time
+                dots = (dots + 1) % 4
+                status_text = (
+                    f"⏳ Dang suy nghi{chr(183) * dots}{' ' * (3-dots)}\n\n"
+                    f"🤖 Model: `{model_id}`\n"
+                    f"⏱ Thoi gian: `{elapsed:.1f}s`\n"
+                    f"💡 Trang thai: `Dang tao phan hoi...`"
+                )
+                await status_msg.edit_text(status_text, parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                pass
+
+    status_task = asyncio.create_task(_update_status())
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_read=300)
+        async with session.post(API_CHAT_URL, headers=headers, json=payload, timeout=timeout) as resp:
+            if resp.status != 200:
+                error_body = await resp.text()
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=resp.status,
+                    message=f"API Error {resp.status}: {error_body[:500]}"
+                )
+            result = await resp.json()
+    except Exception:
+        raise
+    finally:
+        status_task.cancel()
+        try:
+            await status_task
+        except asyncio.CancelledError:
+            pass
+
+    latency = time.time() - start_time
+
+    if not isinstance(result, dict):
+        raise ValueError(f"Invalid API response type: {type(result)}")
+
+    choices = result.get('choices', [])
+    if not choices:
+        raise ValueError("No choices in API response")
+
+    content = choices[0].get('message', {}).get('content', '')
+    if not content:
+        raise ValueError("Empty content from API")
+
+    usage = result.get('usage', {})
+    input_tokens = usage.get('prompt_tokens', 0)
+    output_tokens = usage.get('completion_tokens', 0)
+
+    if input_tokens == 0:
+        input_tokens = sum(estimate_tokens(m.get('content', '')) for m in msgs)
+    if output_tokens == 0:
+        output_tokens = estimate_tokens(content)
+
+    metrics = {
+        'latency': latency,
+        'input_tokens': input_tokens,
+        'output_tokens': output_tokens,
+        'total_tokens': input_tokens + output_tokens,
+        'tps': output_tokens / latency if latency > 0 else 0
+    }
+
+    return content, metrics
+
+async def call_embed_api(
+    session: aiohttp.ClientSession,
+    model_id: str,
+    text_input: str,
+    status_msg: Any,
+) -> Tuple[str, Dict[str, Any], str]:
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {API_KEY}"
+    }
+    payload = {"model": model_id, "input": text_input}
+
+    start_time = time.time()
+    dots = 0
+
+    async def _update_status():
+        nonlocal dots
+        while True:
+            try:
+                await asyncio.sleep(STATUS_UPDATE_INTERVAL)
+                elapsed = time.time() - start_time
+                dots = (dots + 1) % 4
+                await status_msg.edit_text(
+                    f"⏳ Dang embed{chr(183) * dots}{' ' * (3-dots)}\n\n"
+                    f"🤖 Model: `{model_id}`\n"
+                    f"⏱ Thoi gian: `{elapsed:.1f}s`\n"
+                    f"💡 Trang thai: `Dang tinh vector...`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception:
+                pass
+
+    status_task = asyncio.create_task(_update_status())
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=None, connect=30)
+        async with session.post(API_EMBED_URL, headers=headers, json=payload, timeout=timeout) as resp:
+            if resp.status != 200:
+                error_body = await resp.text()
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=resp.status,
+                    message=f"API Error {resp.status}: {error_body[:500]}"
+                )
+            result = await resp.json()
+    finally:
+        status_task.cancel()
+        try:
+            await status_task
+        except asyncio.CancelledError:
+            pass
+
+    latency = time.time() - start_time
+
+    data = result.get('data', [])
+    if not data:
+        raise ValueError("No embedding data returned")
+
+    embedding = data[0].get('embedding', [])
+    dims = len(embedding)
+    preview = embedding[:5]
+    preview_str = ", ".join([f"{v:.6f}" for v in preview])
+
+    content = (
+        f"📊 Embedding Result\n"
+        f"{'━' * 20}\n"
+        f"• 📐 Dimensions: `{dims}`\n"
+        f"• 🔢 Preview: `{preview_str}...`\n\n"
+        f"📄 Full vector da duoc luu trong file dinh kem."
+    )
+
+    full_vector_text = f"Model: {model_id}\nDimensions: {dims}\n\nEmbedding Vector:\n{json.dumps(embedding, indent=2)}"
+
+    usage = result.get('usage', {})
+    input_tokens = usage.get('prompt_tokens', 0) or usage.get('input_tokens', 0) or estimate_tokens(text_input)
+
+    metrics = {
+        'latency': latency,
+        'input_tokens': input_tokens,
+        'output_tokens': 0,
+        'total_tokens': input_tokens,
+        'tps': 0
+    }
+
+    return content, metrics, full_vector_text
+
+async def call_tts_api(
+    session: aiohttp.ClientSession,
+    model_id: str,
+    text_input: str,
+    status_msg: Any,
+) -> Tuple[bytes, Dict[str, Any]]:
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {API_KEY}"
+    }
+    payload = {
+        "model": model_id,
+        "input": text_input,
+        "voice": "alloy"
+    }
+
+    start_time = time.time()
+    dots = 0
+
+    async def _update_status():
+        nonlocal dots
+        while True:
+            try:
+                await asyncio.sleep(STATUS_UPDATE_INTERVAL)
+                elapsed = time.time() - start_time
+                dots = (dots + 1) % 4
+                await status_msg.edit_text(
+                    f"⏳ Dang tong hop giong noi{chr(183) * dots}{' ' * (3-dots)}\n\n"
+                    f"🤖 Model: `{model_id}`\n"
+                    f"⏱ Thoi gian: `{elapsed:.1f}s`\n"
+                    f"💡 Trang thai: `Dang tao audio...`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception:
+                pass
+
+    status_task = asyncio.create_task(_update_status())
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=None, connect=30)
+        async with session.post(API_TTS_URL, headers=headers, json=payload, timeout=timeout) as resp:
+            if resp.status != 200:
+                error_body = await resp.text()
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=resp.status,
+                    message=f"API Error {resp.status}: {error_body[:500]}"
+                )
+            audio_bytes = await resp.read()
+    finally:
+        status_task.cancel()
+        try:
+            await status_task
+        except asyncio.CancelledError:
+            pass
+
+    latency = time.time() - start_time
+
+    if not audio_bytes or len(audio_bytes) < 100:
+        raise ValueError("Received empty or invalid audio data")
+
+    metrics = {
+        'latency': latency,
+        'input_tokens': estimate_tokens(text_input),
+        'output_tokens': 0,
+        'total_tokens': estimate_tokens(text_input),
+        'tps': 0
+    }
+
+    return audio_bytes, metrics
+
+async def call_image_api(
+    session: aiohttp.ClientSession,
+    prompt: str,
+    model: str = "dall-e-3",
+    size: str = "1024x1024",
+    status_msg: Any = None,
+) -> Tuple[bytes, str]:
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {API_KEY}"
+    }
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "n": 1,
+        "size": size
+    }
+
+    start_time = time.time()
+
+    if status_msg:
+        await status_msg.edit_text("🎨 Dang tao hinh anh...", parse_mode=ParseMode.MARKDOWN)
+
+    timeout = aiohttp.ClientTimeout(total=120, connect=30)
+    async with session.post(API_IMAGE_URL, headers=headers, json=payload, timeout=timeout) as resp:
+        if resp.status != 200:
+            error_body = await resp.text()
+            raise Exception(f"Image API Error {resp.status}: {error_body[:500]}")
+        result = await resp.json()
+
+    latency = time.time() - start_time
+
+    data = result.get('data', [])
+    if not data:
+        raise ValueError("No image data returned")
+
+    image_url = data[0].get('url', '')
+    if not image_url:
+        b64 = data[0].get('b64_json', '')
+        if b64:
+            return base64.b64decode(b64), f"Generated in {latency:.1f}s"
+        raise ValueError("No image URL or base64 returned")
+
+    async with session.get(image_url) as img_resp:
+        image_bytes = await img_resp.read()
+
+    return image_bytes, f"Generated in {latency:.1f}s"
+
+# ============================ WEB SEARCH & TOOLS ============================
+
+async def web_search(session: aiohttp.ClientSession, query: str, num_results: int = 5) -> List[Dict[str, str]]:
+    return [
+        {"title": f"Result {i+1} for: {query[:30]}", "url": "https://example.com", "snippet": "Search result snippet..."}
+        for i in range(num_results)
+    ]
+
+async def fetch_webpage(session: aiohttp.ClientSession, url: str) -> str:
+    try:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with session.get(url, timeout=timeout, headers={"User-Agent": "DeniaBot/1.0"}) as resp:
+            if resp.status == 200:
+                html = await resp.text()
+                text = re.sub(r'<[^>]+>', ' ', html)
+                text = re.sub(r'\s+', ' ', text).strip()
+                return text[:5000]
+            return f"Error: HTTP {resp.status}"
+    except Exception as e:
+        return f"Error fetching page: {str(e)}"
+
+# ============================ CODE INTERPRETER ============================
+
+class CodeInterpreter:
+    @staticmethod
+    async def execute(code: str, timeout: int = 30) -> Tuple[bool, str, str]:
+        blacklist = [
+            'import os', 'import sys', 'import subprocess', 'import socket',
+            '__import__', 'eval(', 'exec(', 'compile(', 'open(', 'file(',
+            'os.system', 'os.popen', 'subprocess.call', 'subprocess.run',
+            'import urllib', 'import requests', 'import ftplib',
+            'shutil.rmtree', 'os.remove', 'os.unlink', 'os.rmdir',
+            'import pathlib', 'pathlib.Path', 'import pickle'
+        ]
+
+        code_lower = code.lower()
+        for banned in blacklist:
+            if banned.lower() in code_lower:
+                return False, "", f"Security Error: Forbidden pattern '{banned}' detected"
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write(code)
+            temp_path = f.name
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, temp_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=1024*1024
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+                success = proc.returncode == 0
+                return success, stdout.decode('utf-8', errors='replace')[:8000], stderr.decode('utf-8', errors='replace')[:4000]
+            except asyncio.TimeoutError:
+                proc.kill()
+                return False, "", f"Execution timeout after {timeout}s"
+        except Exception as e:
+            return False, "", f"Execution error: {str(e)}"
+        finally:
+            try:
+                os.unlink(temp_path)
             except:
                 pass
 
-    # Send as file
-    bio = io.BytesIO(text.encode('utf-8'))
-    bio.name = f"denia_response_{int(time.time())}.txt"
-    cap = caption or "📄 Response too long for chat — sent as file"
-    return await update.message.reply_document(document=bio, caption=cap)
+# ============================ AGENT INTELLIGENCE ============================
 
-# ============================================================================
-# 🎯 COMMAND HANDLERS
-# ============================================================================
+async def agent_self_reflect(task: AgentTask, state: ConversationState) -> str:
+    reflection = (
+        f"🧠 Self-Reflection\n"
+        f"{'━' * 20}\n"
+        f"• Task: `{task.task_id}`\n"
+        f"• Status: {task.status}\n"
+    )
+    if task.error:
+        reflection += f"• Error recorded: `{task.error[:100]}`\n"
+        state.self_notes.append(f"Avoid [{datetime.now().strftime('%H:%M')}]: {task.error[:200]}")
+    else:
+        reflection += f"• Success pattern recorded\n"
+        state.self_notes.append(f"Success [{datetime.now().strftime('%H:%M')}]: {task.description[:200]}")
 
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    allowed, msg = await rate_limit_check(update)
-    if not allowed:
-        await update.message.reply_text(msg, parse_mode=TPM.MARKDOWN)
-        return
+    state.self_notes = state.self_notes[-100:]
+    return reflection
 
-    state = get_user_state(user_id)
+async def agent_analyze_code(code: str, language: str = "python") -> Dict[str, Any]:
+    issues = []
+    warnings = []
+    info = []
+    score = 100
 
-    welcome = f"""╔══════════════════════════════╗
-║     🤖 *Denia Bot v9\\.0*      ║
-║    *Ultimate AI Agent*        ║
-╚══════════════════════════════╝
+    if language == "python":
+        try:
+            compile(code, '<string>', 'exec')
+            info.append("✅ Syntax: Valid Python")
+        except SyntaxError as e:
+            issues.append(f"❌ Syntax Error: Line {e.lineno}: {e.msg}")
+            score -= 30
 
-👋 Xin chào *{escape_md(update.effective_user.first_name or 'bạn')}*\\!
+        dangerous_patterns = [
+            (r'eval\s*\(', "Dangerous eval() detected"),
+            (r'exec\s*\(', "Dangerous exec() detected"),
+            (r'input\s*\(.*\)', "Potential injection vulnerability"),
+            (r'subprocess\.call\s*\([^)]*shell\s*=\s*True', "Shell=True is dangerous"),
+            (r'os\.system\s*\(', "os.system() is dangerous"),
+            (r'pickle\.loads?\s*\(', "Unsafe pickle usage"),
+            (r'yaml\.load\s*\([^)]*Loader\s*=\s*None', "Unsafe YAML loading"),
+        ]
+        for pattern, msg in dangerous_patterns:
+            if re.search(pattern, code):
+                issues.append(f"🔒 {msg}")
+                score -= 25
 
-🧠 *AI đa nền tảng* — Tự chọn model, tự nén context, tự học từ lỗi
+        if "import *" in code:
+            warnings.append("⚠️ Wildcard imports detected")
+            score -= 5
+        if "except:" in code and "except Exception" not in code:
+            warnings.append("⚠️ Bare except: found")
+            score -= 5
+        if "print(" in code and "logging" not in code and len(code.split('\n')) > 30:
+            warnings.append("💡 Consider using logging instead of print()")
+            score -= 3
+        if "TODO" in code or "FIXME" in code:
+            warnings.append("📝 TODO/FIXME markers found")
+            score -= 2
+        if code.count('def ') > 20:
+            warnings.append("📊 High function count")
+            score -= 3
+        if 'if __name__ ==' not in code and len(code.split('\n')) > 25:
+            warnings.append("⚠️ No __main__ guard")
+            score -= 3
+        if 'typing' not in code and len(code.split('\n')) > 50:
+            warnings.append("💡 Consider adding type hints")
+            score -= 2
+        # Check docstrings using chr to avoid triple quote issues
+        dq = chr(34) * 3
+        sq = chr(39) * 3
+        if dq not in code and sq not in code and len(code.split('\n')) > 30:
+            warnings.append("💡 Missing docstrings")
+            score -= 3
 
-📦 *Chế độ hiện tại:*
-• 💬 *Chat* — Hỏi đáp thông minh
-• 🤖 *Agent* — Code tự động \\+ Deploy
+        lines = len(code.split('\n'))
+        if lines > 500:
+            warnings.append(f"📊 Large file: {lines} lines")
+            score -= 5
 
-🚀 *Model:* `{escape_md(state.current_model)}`
-🎯 *Auto\\-select:* {'✅ Bật' if state.auto_model else '❌ Tắt'}
-📦 *Deploy:* `{state.agent_deploy_mode.upper()}`
+        async_count = len(re.findall(r'\basync def\b', code))
+        await_count = len(re.findall(r'\bawait\b', code))
+        if async_count > 0 and await_count == 0:
+            warnings.append("⚠️ async functions without await")
+            score -= 5
 
-📚 *Lệnh chính:*
-• `/agent` \\- Chạy agent tự động
-• `/models` \\- Chọn model AI
-• `/style` \\- Đổi phong cách trả lời
-• `/deploy` \\- Cài đặt deploy
-• `/stats` \\- Xem thống kê
-• `/reset` \\- Xóa lịch sử
-• `/help` \\- Hướng dẫn chi tiết
+    return {
+        "score": max(0, score),
+        "issues": issues,
+        "warnings": warnings,
+        "info": info,
+        "language": language,
+        "lines": len(code.split('\n'))
+    }
 
-💡 *Mẹo:* Gõ `/agent github Tạo API FastAPI \\+ SQLite` để auto\\-deploy\\!"""
+def generate_dockerfile(project_type: str = "python", requirements: List[str] = None) -> str:
+    if project_type == "python":
+        dockerfile = """FROM python:3.11-slim
 
-    await update.message.reply_text(welcome, parse_mode=TPM.MARKDOWN_V2,
-                                    reply_markup=build_main_menu())
-    await state_store.save_user(user_id)
+WORKDIR /app
 
-async def cmd_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-    keyboard = build_model_keyboard(state.mode, state.current_model)
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    gcc \\
+    && rm -rf /var/lib/apt/lists/*
 
-    header = f"""📂 *Model Catalog*
-{'━' * 25}
-✅ = Đang dùng | 🟢 OpenCode | 🔵 NVIDIA
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-*Chế độ:* {MODE_CONFIG[state.mode]['name']}
-*Auto\\-select:* {'Bật' if state.auto_model else 'Tắt'}
+COPY . .
 
-👇 Chọn model hoặc dùng *Auto\\-Select* để bot tự chọn tối ưu"""
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
 
-    await update.message.reply_text(header, parse_mode=TPM.MARKDOWN,
-                                    reply_markup=keyboard)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \\
+    CMD python -c "import sys; sys.exit(0)"
 
-async def cmd_agent(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
+EXPOSE 8000
 
-    if not context.args:
-        deploy_modes = {
-            "local": "📦 Gửi ZIP qua Telegram",
-            "github": "🌐 Push lên GitHub repo",
-            "both": "🚀 Cả hai (ZIP + GitHub)"
+CMD ["python", "main.py"]
+"""
+    elif project_type == "node":
+        dockerfile = """FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY . .
+USER node
+EXPOSE 3000
+CMD ["node", "index.js"]
+"""
+    else:
+        dockerfile = "# Dockerfile template\nFROM alpine:latest\nWORKDIR /app\nCOPY . .\nCMD [\"echo\", \"Hello World\"]\n"
+
+    return dockerfile
+
+def generate_github_actions(project_type: str = "python") -> str:
+    if project_type == "python":
+        workflow = """name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov flake8 black
+
+    - name: Lint with flake8
+      run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+    - name: Format check with black
+      run: black --check .
+
+    - name: Test with pytest
+      run: pytest --cov=./ --cov-report=xml
+
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: false
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run Bandit security scan
+      uses: PyCQA/bandit@main
+      with:
+        args: "-r . -f json -o bandit-report.json || true"
+    - name: Upload security report
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-report
+        path: bandit-report.json
+"""
+    else:
+        workflow = "# GitHub Actions template\nname: CI\non: [push]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: echo \"Build\"\n"
+    return workflow
+
+# ============================ KNOWLEDGE BASE (RAG) ============================
+
+class SimpleRAG:
+    @staticmethod
+    def cosine_similarity(a: List[float], b: List[float]) -> float:
+        if not a or not b or len(a) != len(b):
+            return 0.0
+        dot = sum(x * y for x, y in zip(a, b))
+        norm_a = math.sqrt(sum(x * x for x in a))
+        norm_b = math.sqrt(sum(x * x for x in b))
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return dot / (norm_a * norm_b)
+
+    @staticmethod
+    def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
+        words = text.split()
+        chunks = []
+        start = 0
+        while start < len(words):
+            end = min(start + chunk_size, len(words))
+            chunk = ' '.join(words[start:end])
+            chunks.append(chunk)
+            start += chunk_size - overlap
+        return chunks
+
+    @staticmethod
+    async def query_knowledge_base(
+        session: aiohttp.ClientSession,
+        query: str,
+        documents: List[KnowledgeDocument],
+        embed_model: str = "text-embedding-3-small",
+        top_k: int = 3
+    ) -> List[Tuple[str, float, str]]:
+        if not documents:
+            return []
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {API_KEY}"
         }
-        current_deploy = deploy_modes.get(state.agent_deploy_mode, state.agent_deploy_mode)
+        payload = {"model": embed_model, "input": query}
 
-        help_text = f"""🤖 *Agent Mode — Code Tự Động*
-{'━' * 25}
+        async with session.post(API_EMBED_URL, headers=headers, json=payload) as resp:
+            if resp.status != 200:
+                return []
+            result = await resp.json()
 
-*Cách dùng:*
-`/agent [github|local|both] <mô tả task>`
+        query_embedding = result.get('data', [{}])[0].get('embedding', [])
+        if not query_embedding:
+            return []
 
-*Ví dụ:*
-• `/agent Tạo REST API FastAPI \\+ SQLite`
-• `/agent github Viết bot Telegram có webhook`
-• `/agent both Xây dựng blog React \\+ Node.js`
+        results = []
+        for doc in documents:
+            if doc.embedding:
+                score = SimpleRAG.cosine_similarity(query_embedding, doc.embedding)
+                if score > 0.5:
+                    results.append((doc.filename, score, doc.content[:1000]))
 
-*Deploy hiện tại:* {current_deploy}
-*Model:* `{state.current_model}`
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:top_k]
 
-⚡ Agent sẽ:
-1\\. Phân tích yêu cầu
-2\\. Lập kế hoạch kiến trúc
-3\\. Code đầy đủ file
-4\\. Kiểm tra syntax
-5\\. Tự sửa lỗi \\(nếu có\\)
-6\\. Deploy theo yêu cầu
+# ============================ COMMAND HANDLERS ============================
 
-💡 *Mẹo:* Mô tả càng chi tiết, code càng chính xác\\!"""
-
-        await update.message.reply_text(help_text, parse_mode=TPM.MARKDOWN_V2)
-        return
-
-    # Parse deploy mode and task
-    deploy_mode = state.agent_deploy_mode
-    args = list(context.args)
-
-    if args[0].lower() in ['github', 'local', 'both']:
-        deploy_mode = args[0].lower()
-        args = args[1:]
-
-    task_desc = " ".join(args).strip()
-    if not task_desc:
-        await update.message.reply_text("❌ *Thiếu mô tả task\\!*\nVí dụ: `/agent Tạo API Python`",
-                                        parse_mode=TPM.MARKDOWN)
-        return
-
-    # Generate task ID
-    task_id = f"denia_{int(time.time())}_{hashlib.md5(f'{user_id}{task_desc}'.encode()).hexdigest()[:8]}"
-    task = AgentTask(
-        task_id=task_id,
-        user_id=user_id,
-        description=task_desc,
-        deploy_mode=deploy_mode,
-        status="pending"
-    )
-    state.agent_tasks.append(task)
-
-    # Initial status message
-    status_text = f"""🤖 *Agent Task Khởi Động*
-{'━' * 25}
-🆔 `{task_id}`
-📝 {escape_md(task_desc[:100])}{'...' if len(task_desc) > 100 else ''}
-📦 Deploy: `{deploy_mode.upper()}`
-
-⏳ *Bước 1/6:* Phân tích yêu cầu\\.\\.\\."""
-
-    status_msg = await update.message.reply_text(status_text, parse_mode=TPM.MARKDOWN_V2)
-
-    # Launch background task
-    asyncio.create_task(
-        run_agent_workflow(update, context, state, task, status_msg, deploy_mode)
-    )
-
-async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    state = get_user_state(user_id)
-    s = state.usage
+    state = await get_user_state(user_id)
+    mode_name = MODE_CONFIG[state.mode]["name"]
+    model_disp = get_model_display(state.mode, state.current_model)
 
-    # Calculate derived stats
-    success_rate = 0.0
-    if s.agent_tasks_completed + s.agent_tasks_failed > 0:
-        success_rate = s.agent_tasks_completed / (s.agent_tasks_completed + s.agent_tasks_failed) * 100
+    welcome = (
+        f"╔══════════════════════════╗\n"
+        f"║     🤖 DENIA BOT         ║\n"
+        f"║   ULTIMATE v5.0          ║\n"
+        f"╚══════════════════════════╝\n\n"
+        f"👋 Chao mung *{escape_markdown(update.effective_user.first_name or 'ban')}*!\n\n"
+        f"🧠 AI Agent Tu Chu — Code · Hoc · Cai Thien\n\n"
+        f"📦 6 Che do thong minh:\n"
+        f"• 💬 Chat — Hoi dap da mo hinh\n"
+        f"• 🤖 Agent — Tu dong code & push GitHub\n"
+        f"• 💻 Coder — Chuyen gia lap trinh\n"
+        f"• 📊 Embed — Text → Vector AI\n"
+        f"• 🔊 TTS — Giong noi tu nhien\n"
+        f"• 👁 Vision — Phan tich hinh anh\n\n"
+        f"🚀 Hien tai: {mode_name} | {model_disp}\n\n"
+        f"📚 Lenh chinh:\n"
+        f"• /models — Chon model (50+ models)\n"
+        f"• /mode — Doi che do\n"
+        f"• /agent — Chay agent tu chu\n"
+        f"• /git — GitHub full control\n"
+        f"• /kb — Knowledge Base (RAG)\n"
+        f"• /run — Chay code Python\n"
+        f"• /search — Tim kiem web\n"
+        f"• /image — Tao anh AI\n"
+        f"• /docker — Tao Dockerfile\n"
+        f"• /cicd — Tao GitHub Actions\n"
+        f"• /analyze — Phan tich code\n"
+        f"• /branch — Quan ly nhanh chat\n"
+        f"• /remind — Hen gio nhac nho\n"
+        f"• /settings — Tuy chinh ca nhan\n"
+        f"• /status — Trang thai & chi phi\n"
+        f"• /stats — Thong ke chi tiet\n"
+        f"• /reset — Xoa ngu canh\n"
+        f"• /help — Chi tiet day du"
+    )
+    await update.message.reply_text(welcome, parse_mode=ParseMode.MARKDOWN)
 
-    models_str = "\n".join([
-        f"• `{m}`: {c}x" 
-        for m, c in sorted(s.models_used.items(), key=lambda x: -x[1])[:5]
-    ]) or "Chưa có dữ liệu"
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = (
+        f"📖 Huong Dan Day Du — Denia Bot v5.0\n"
+        f"{'━' * 26}\n\n"
+        f"🚀 Lenh Co Ban:\n"
+        f"• /start — Khoi dong bot\n"
+        f"• /models — Danh sach 50+ model\n"
+        f"• /switch <so> — Doi model nhanh\n"
+        f"• /mode — Doi che do chat/agent/coder/embed/tts/vision\n"
+        f"• /status — Trang thai & chi phi\n"
+        f"• /stats — Thong ke su dung\n"
+        f"• /reset — Xoa lich su + ngu canh\n"
+        f"• /settings — Tuy chinh ngon ngu, style, verbosity\n"
+        f"• /export — Xuat lich su chat\n"
+        f"• /import — Nhap lich su (reply file JSON)\n\n"
+        f"🤖 Agent & Code:\n"
+        f"• /agent <mo ta> — Agent tu code & push GitHub\n"
+        f"• /agent_advanced <mo ta> — Agent voi review + test + docs\n"
+        f"• /git — Danh sach lenh GitHub\n"
+        f"  - /git repo <ten> [desc] [private] — Tao repo\n"
+        f"  - /git push <o/r> <path> — Push file\n"
+        f"  - /git get <o/r> <path> — Doc file\n"
+        f"  - /git list <o/r> [path] — Liet ke\n"
+        f"  - /git update <o/r> <path> — Update\n"
+        f"  - /git delete <o/r> <path> — Xoa\n"
+        f"  - /git branch <o/r> <branch> — Tao branch\n"
+        f"  - /git pr <o/r> <title> <head> <base> — Tao PR\n"
+        f"  - /git issue <o/r> <title> — Tao issue\n"
+        f"  - /git release <o/r> <tag> — Tao release\n"
+        f"  - /git workflow <o/r> <name> — Tao CI workflow\n"
+        f"  - /git commits <o/r> — Xem lich su\n"
+        f"  - /git search <query> — Tim repo\n"
+        f"  - /git fork <o/r> — Fork repo\n"
+        f"• /analyze — Phan tich code (reply code)\n"
+        f"• /run <code> — Chay Python sandbox\n"
+        f"• /docker <type> — Tao Dockerfile\n"
+        f"• /cicd <type> — Tao GitHub Actions\n"
+        f"• /diff <code1> | <code2> — So sanh code\n"
+        f"• /testgen <code> — Tao unit test\n\n"
+        f"🧠 Knowledge & Search:\n"
+        f"• /kb upload — Upload file (reply file)\n"
+        f"• /kb ask <cau hoi> — Hoi dua tren KB\n"
+        f"• /kb list — Xem tai lieu da upload\n"
+        f"• /kb clear — Xoa toan bo KB\n"
+        f"• /search <query> — Tim kiem web\n"
+        f"• /fetch <url> — Lay noi dung web\n\n"
+        f"🎨 Multimedia:\n"
+        f"• /image <mo ta> — Tao anh AI\n"
+        f"• /tts <van ban> — Text → Giong noi\n"
+        f"• /stt — Voice → Text (reply voice)\n"
+        f"• /vision — Phan tich anh (reply anh)\n\n"
+        f"🌿 Conversation & Memory:\n"
+        f"• /branch — Quan ly nhanh chat\n"
+        f"  - /branch new <ten> — Tao nhanh moi\n"
+        f"  - /branch switch <id> — Chuyen nhanh\n"
+        f"  - /branch list — Liet ke\n"
+        f"  - /branch merge <id> — Gop nhanh\n"
+        f"• /remind <time> <message> — Hen gio\n"
+        f"  - /remind 10m uong nuoc\n"
+        f"  - /remind 2h bao cao\n"
+        f"• /persona <mo ta> — Dat tinh cach AI\n"
+        f"• /learn — Xem ghi chu tu hoc\n"
+        f"• /tasks — Lich su agent tasks\n\n"
+        f"⚠️ Luu y:\n"
+        f"• Dung /reset neu AI bi lan ngu canh\n"
+        f"• Agent mode can mo ta ro rang\n"
+        f"• Code sandbox co gioi han bao mat\n"
+        f"• Gia moi model khac nhau — xem /models"
+    )
+    await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
 
-    stats_text = f"""📊 *Thống Kê Sử Dụng*
-{'━' * 25}
-
-🔢 *Tổng request:* `{s.total_requests}`
-📝 *Input tokens:* `{s.total_input_tokens:,}`
-💬 *Output tokens:* `{s.total_output_tokens:,}`
-📦 *Tổng tokens:* `{s.total_tokens:,}`
-⏱ *Latency trung bình:* `{s.avg_latency:.2f}s`
-
-🤖 *Model đã dùng:*
-{models_str}
-
-🎯 *Agent tasks:*
-• Hoàn thành: `{s.agent_tasks_completed}`
-• Thất bại: `{s.agent_tasks_failed}`
-• Tỷ lệ thành công: `{success_rate:.1f}%`
-
-📅 *Bắt đầu:* `{s.first_seen[:10]}`
-🕐 *Hoạt động gần nhất:* `{s.last_active[:16]}`
-
-💡 Dùng `/reset` để xóa lịch sử"""
-
-    await send_long_message(update, stats_text)
-    await state_store.save_user(user_id)
-
-async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    state = get_user_state(user_id)
+    state = await get_user_state(user_id)
+    mode = state.mode
+    mode_name = MODE_CONFIG[mode]["name"]
+    current_model = state.current_model
+    models_list = MODE_CONFIG[mode]["models"]
 
-    state.history = []
-    state.agent_tasks = state.agent_tasks[-5:]  # Keep last 5
-    state.error_patterns = {}
-    state.successful_patterns = {}
+    keyboard = []
+    row = []
+
+    for idx, (cat, model_id, display, tier, inp, out) in enumerate(models_list, 1):
+        prefix = "✅ " if model_id == current_model else ""
+        emoji = CATEGORY_EMOJI.get(tier, "⚪")
+        btn_text = f"{prefix}{idx}.{emoji}{display[:22]}"
+        button = InlineKeyboardButton(btn_text, callback_data=f"model_{mode}_{idx}")
+        row.append(button)
+        if len(row) == 1:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    keyboard.append([
+        InlineKeyboardButton("💚 Free", callback_data="filter_free"),
+        InlineKeyboardButton("💛 Std", callback_data="filter_standard"),
+        InlineKeyboardButton("🧡 Pre", callback_data="filter_premium"),
+        InlineKeyboardButton("❤️ Ultra", callback_data="filter_ultra"),
+    ])
+    keyboard.append([InlineKeyboardButton("🔄 Lam moi", callback_data="refresh_models")])
+
+    header = (
+        f"📂 Danh Sach Model — {mode_name}\n"
+        f"{'━' * 24}\n"
+        f"✅ = Dang dung: `{get_model_display(mode, current_model)}`\n"
+        f"📊 Tong: {len(models_list)} models\n"
+        f"💚Free 💛Std 🧡Pre ❤️Ultra 💜Special\n\n"
+        f"👇 Chon model:"
+    )
 
     await update.message.reply_text(
-        "🗑️ *Đã reset\\!*\n\n"
-        "✅ Lịch sử chat đã xóa\n"
-        "✅ Pattern cache đã xóa\n"
-        "📦 Giữ lại 5 task gần nhất",
-        parse_mode=TPM.MARKDOWN
+        header,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    await state_store.save_user(user_id)
 
-async def cmd_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-
-    if not context.args:
-        await update.message.reply_text(
-            "⚙️ *Chọn phong cách trả lời:*",
-            parse_mode=TPM.MARKDOWN,
-            reply_markup=build_style_keyboard(state.preferred_style)
-        )
-        return
-
-    style = context.args[0].lower()
-    if style in ['concise', 'balanced', 'verbose']:
-        state.preferred_style = style
-        await update.message.reply_text(
-            f"✅ *Đã đổi phong cách:* `{style.upper()}`",
-            parse_mode=TPM.MARKDOWN
-        )
-    else:
-        await update.message.reply_text(
-            "❌ *Phong cách không hợp lệ*\nChọn: `concise`, `balanced`, `verbose`",
-            parse_mode=TPM.MARKDOWN
-        )
-    await state_store.save_user(user_id)
-
-async def cmd_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    state = get_user_state(user_id)
-
-    if not context.args:
-        await update.message.reply_text(
-            "📦 *Cài đặt Deploy Mode:*\n\n"
-            "Chọn nơi Agent sẽ gửi code sau khi hoàn thành:",
-            parse_mode=TPM.MARKDOWN,
-            reply_markup=build_deploy_keyboard(state.agent_deploy_mode)
-        )
-        return
-
-    mode = context.args[0].lower()
-    if mode in ['local', 'github', 'both']:
-        state.agent_deploy_mode = mode
-        await update.message.reply_text(
-            f"✅ *Deploy mode:* `{mode.upper()}`",
-            parse_mode=TPM.MARKDOWN
-        )
-    else:
-        await update.message.reply_text(
-            "❌ *Chọn:* `local`, `github`, hoặc `both`",
-            parse_mode=TPM.MARKDOWN
-        )
-    await state_store.save_user(user_id)
-
-async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = """📖 *Hướng Dẫn Denia Bot v9.0*
-━━━━━━━━━━━━━━━━━━━━━━
-
-🎯 *Lệnh chính:*
-• `/start` — Menu chính
-• `/agent [mode] <task>` — Chạy agent
-• `/models` — Chọn model AI
-• `/style <concise|balanced|verbose>` — Phong cách
-• `/deploy <local|github|both>` — Cài deploy
-• `/stats` — Thống kê
-• `/reset` — Xóa lịch sử
-• `/help` — Hiển thị hướng dẫn
-
-🤖 *Agent Mode:*
-• `/agent Tạo API FastAPI` — ZIP local
-• `/agent github Viết bot Telegram` — Push GitHub
-• `/agent both Xây dựng fullstack app` — Cả hai
-
-⚙️ *Tùy chỉnh:*
-• Bot tự chọn model phù hợp
-• Context tự nén khi dài
-• Học từ lỗi để cải thiện
-• Streaming: thấy chữ hiện dần
-
-🔧 *Troubleshooting:*
-• Lỗi timeout? → Thử `/models` chọn model khác
-• Code lỗi? → Agent tự động retry + fix
-• GitHub lỗi? → Kiểm tra token hoặc dùng local
-
-━━━━━━━━
-🤖 Denia Bot v9.0 — Ultimate Pro Edition"""
-    await send_long_message(update, help_text)
-
-# ============================================================================
-# 🎛️ CALLBACK HANDLER
-# ============================================================================
-
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     user_id = update.effective_user.id
-    state = get_user_state(user_id)
+    state = await get_user_state(user_id)
     data = query.data
 
-    try:
-        if data.startswith("model_"):
-            parts = data.split("_", 2)
-            if len(parts) >= 3:
-                mode, model_id = parts[1], parts[2]
-                valid_models = [m[1] for m in MODE_CONFIG.get(mode, {}).get("models", [])]
-                if model_id in valid_models:
-                    state.mode = mode
-                    state.current_model = model_id
-                    state.current_provider = MODEL_REGISTRY[model_id].provider if model_id in MODEL_REGISTRY else "nvidia"
-                    state.auto_model = False
-                    display = _get_model_display(mode, model_id)
-                    await query.edit_message_text(
-                        f"✅ *Đã chọn model\\!*\n\n🤖 {display}\n🆔 `{model_id}`\n\n💡 Auto\\-select đã tắt.",
-                        parse_mode=TPM.MARKDOWN
-                    )
+    if data == "refresh_models":
+        await query.edit_message_text("🔄 Dang lam moi...")
+        await show_models(update, context)
+        return
 
-        elif data.startswith("models_"):
-            parts = data.split("_")
-            if len(parts) >= 3:
-                mode, page = parts[1], int(parts[2])
-                keyboard = build_model_keyboard(mode, state.current_model, page)
-                await query.edit_message_reply_markup(reply_markup=keyboard)
+    if data.startswith("filter_"):
+        tier = data.replace("filter_", "").capitalize()
+        mode = state.mode
+        models_list = MODE_CONFIG[mode]["models"]
+        filtered = [m for m in models_list if m[3] == tier]
 
-        elif data.startswith("auto_"):
-            mode = data.split("_")[1]
-            state.mode = mode
-            state.auto_model = True
-            await query.edit_message_text(
-                "🎯 *Auto\\-Select đã BẬT*\n\n"
-                "Bot sẽ tự chọn model tối ưu cho từng task.",
-                parse_mode=TPM.MARKDOWN_V2
-            )
+        if not filtered:
+            await query.edit_message_text(f"❌ Khong co model {tier}.", parse_mode=ParseMode.MARKDOWN)
+            return
 
-        elif data.startswith("mode_"):
-            mode = data.split("_")[1]
-            if mode in MODE_CONFIG:
-                state.mode = mode
-                state.current_model = MODE_CONFIG[mode]["default"]
-                state.current_provider = MODEL_REGISTRY[state.current_model].provider if state.current_model in MODEL_REGISTRY else "nvidia"
-                await query.edit_message_text(
-                    f"✅ *Chế độ:* {MODE_CONFIG[mode]['name']}\n"
-                    f"🤖 *Model:* `{state.current_model}`",
-                    parse_mode=TPM.MARKDOWN
-                )
+        keyboard = []
+        row = []
+        for idx, (cat, model_id, display, t, inp, out) in enumerate(filtered, 1):
+            prefix = "✅ " if model_id == state.current_model else ""
+            emoji = CATEGORY_EMOJI.get(tier, "⚪")
+            btn_text = f"{prefix}{idx}.{emoji}{display[:22]}"
+            orig_idx = models_list.index((cat, model_id, display, t, inp, out)) + 1
+            row.append(InlineKeyboardButton(btn_text, callback_data=f"model_{mode}_{orig_idx}"))
+            if len(row) == 1:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+        keyboard.append([InlineKeyboardButton("⬅️ Quay lai", callback_data="refresh_models")])
 
-        elif data.startswith("deploy_"):
-            mode = data.split("_")[1]
-            if mode in ['local', 'github', 'both']:
-                state.agent_deploy_mode = mode
-                await query.edit_message_text(
-                    f"✅ *Deploy mode:* `{mode.upper()}`\n\n"
-                    f"Agent sẽ deploy code ở chế độ này.",
-                    parse_mode=TPM.MARKDOWN,
-                    reply_markup=build_deploy_keyboard(mode)
-                )
-
-        elif data.startswith("style_"):
-            style = data.split("_")[1]
-            if style in ['concise', 'balanced', 'verbose']:
-                state.preferred_style = style
-                await query.edit_message_text(
-                    f"✅ *Phong cách:* `{style.upper()}`",
-                    parse_mode=TPM.MARKDOWN,
-                    reply_markup=build_style_keyboard(style)
-                )
-
-        elif data == "menu_main":
-            await query.edit_message_text(
-                "🏠 *Main Menu*\n\nChọn chức năng:",
-                parse_mode=TPM.MARKDOWN,
-                reply_markup=build_main_menu()
-            )
-
-        elif data == "menu_stats":
-            await cmd_stats(update, context)
-
-        elif data == "menu_settings":
-            await query.edit_message_text(
-                "⚙️ *Settings*\n\nChọn tùy chỉnh:",
-                parse_mode=TPM.MARKDOWN,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🎨 Phong cách", callback_data="menu_style")],
-                    [InlineKeyboardButton("📦 Deploy mode", callback_data="menu_deploy")],
-                    [InlineKeyboardButton("🧠 Model", callback_data="menu_models")],
-                    [InlineKeyboardButton("🔙 Back", callback_data="menu_main")]
-                ])
-            )
-
-        elif data == "menu_style":
-            await query.edit_message_text(
-                "🎨 *Phong cách trả lời*",
-                parse_mode=TPM.MARKDOWN,
-                reply_markup=build_style_keyboard(state.preferred_style)
-            )
-
-        elif data == "menu_deploy":
-            await query.edit_message_text(
-                "📦 *Deploy Settings*",
-                parse_mode=TPM.MARKDOWN,
-                reply_markup=build_deploy_keyboard(state.agent_deploy_mode)
-            )
-
-        elif data == "menu_models":
-            keyboard = build_model_keyboard(state.mode, state.current_model)
-            await query.edit_message_text(
-                "🧠 *Model Selection*",
-                parse_mode=TPM.MARKDOWN,
-                reply_markup=keyboard
-            )
-
-        elif data == "menu_reset":
-            await cmd_reset(update, context)
-
-        elif data == "menu_help":
-            await cmd_help(update, context)
-
-        await state_store.save_user(user_id)
-
-    except Exception as e:
-        logging.error(f"Callback error: {e}")
         await query.edit_message_text(
-            f"⚠️ Lỗi xử lý callback: `{str(e)[:100]}`",
-            parse_mode=TPM.MARKDOWN
+            f"📂 Model {tier} — {len(filtered)} models\n👇 Chon:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
+        return
 
-# ============================================================================
-# 🤖 PROFESSIONAL AGENT WORKFLOW
-# ============================================================================
+    if data.startswith("model_"):
+        parts = data.split("_")
+        if len(parts) >= 3:
+            mode = parts[1]
+            try:
+                choice = int(parts[2])
+                models_list = MODE_CONFIG[mode]["models"]
 
-async def run_agent_workflow(update: Update, context: ContextTypes.DEFAULT_TYPE,
-                             state: ConversationState, task: AgentTask,
-                             status_msg: Message, deploy_mode: str):
-    """
-    Professional 6-step agent workflow:
-    1. ANALYZE — Understand requirements
-    2. PLAN — Architecture & file structure
-    3. CODE — Generate complete implementation
-    4. VALIDATE — Syntax check & completeness
-    5. FIX — Auto-repair if needed
-    6. DEPLOY — Package and deliver
-    """
-    start_time = time.time()
+                if 1 <= choice <= len(models_list):
+                    cat, selected_id, selected_disp, tier, inp, out = models_list[choice - 1]
+                    state.mode = mode
+                    state.current_model = selected_id
+
+                    await query.edit_message_text(
+                        f"✅ Da chuyen!\n\n"
+                        f"🔄 Mode: *{MODE_CONFIG[mode]['name']}*\n"
+                        f"🤖 Model: *{CATEGORY_EMOJI.get(tier, '⚪')} {selected_disp.split(' (')[0]}*\n"
+                        f"💰 Gia: `{inp//1000}k/{out//1000}k` per 1M tok\n"
+                        f"🆔 ID: `{selected_id}`\n\n"
+                        f"💡 Go /reset neu muon xoa ngu canh cu.",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                else:
+                    await query.edit_message_text("❌ So khong hop le.", parse_mode=ParseMode.MARKDOWN)
+            except ValueError:
+                await query.edit_message_text("❌ Loi xu ly.", parse_mode=ParseMode.MARKDOWN)
+
+async def switch_model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Cu phap: /switch <so>\nVi du: /switch 2",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
 
     try:
-        # Step 1: ANALYZE
-        task.status = "analyzing"
-        await _update_agent_status(status_msg, task, 1, 6, "🔍 Phân tích yêu cầu...")
+        choice = int(context.args[0])
+        user_id = update.effective_user.id
+        state = await get_user_state(user_id)
+        mode = state.mode
+        models_list = MODE_CONFIG[mode]["models"]
 
-        model_id, display, provider = _select_agent_model(state, task.description)
-        task.model_used = model_id
-        task.provider_used = provider
+        if 1 <= choice <= len(models_list):
+            cat, selected_id, selected_disp, tier, inp, out = models_list[choice - 1]
+            state.current_model = selected_id
 
-        analyze_messages = [
-            {"role": "system", "content": SYSTEM_PROMPT_AGENT},
-            {"role": "user", "content": f"Analyze this task and provide a brief technical plan:\n\n{task.description}\n\nRespond with:\n1. Main goal\n2. Tech stack recommendation\n3. Key files needed\n4. Potential challenges"}
+            await update.message.reply_text(
+                f"✅ Da chuyen model!\n\n"
+                f"🤖 {CATEGORY_EMOJI.get(tier, '⚪')} *{selected_disp.split(' (')[0]}*\n"
+                f"💰 `{inp//1000}k/{out//1000}k` per 1M\n"
+                f"🆔 `{selected_id}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            await update.message.reply_text(
+                f"❌ Chon so tu 1 den {len(models_list)}.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Vui long nhap so hop le.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
+
+    if not context.args:
+        current = state.mode
+        keyboard = []
+        for mode_key, mode_info in MODE_CONFIG.items():
+            prefix = "✅ " if mode_key == current else ""
+            keyboard.append([InlineKeyboardButton(
+                f"{prefix}{mode_info['name']}",
+                callback_data=f"setmode_{mode_key}"
+            )])
+
+        await update.message.reply_text(
+            f"🔄 Chon che do hoat dong:\n"
+            f"Hien tai: {MODE_CONFIG[current]['name']}",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    mode_arg = context.args[0].lower()
+    if mode_arg in MODE_CONFIG:
+        state.mode = mode_arg
+        state.current_model = MODE_CONFIG[mode_arg]["default"]
+        state.history = []
+
+        await update.message.reply_text(
+            f"✅ Da chuyen che do!\n\n"
+            f"🔄 Mode: *{MODE_CONFIG[mode_arg]['name']}*\n"
+            f"🤖 Model mac dinh: `{state.current_model}`\n"
+            f"🗑 Da xoa lich su cu.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        await update.message.reply_text(
+            "❌ Che do khong hop le!\n"
+            "Chon: chat, agent, coder, embed, tts, vision",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+async def mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
+    data = query.data
+
+    if data.startswith("setmode_"):
+        mode_key = data.replace("setmode_", "")
+        if mode_key in MODE_CONFIG:
+            state.mode = mode_key
+            state.current_model = MODE_CONFIG[mode_key]["default"]
+            state.history = []
+
+            await query.edit_message_text(
+                f"✅ Da chuyen che do!\n\n"
+                f"🔄 Mode: *{MODE_CONFIG[mode_key]['name']}*\n"
+                f"🤖 Model: `{state.current_model}`\n"
+                f"🗑 Da xoa lich su cu.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+async def reset_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id in user_states:
+        old_state = user_states[user_id]
+        new_state = ConversationState()
+        new_state.stats = old_state.stats
+        new_state.preferences = old_state.preferences
+        new_state.github_username = old_state.github_username
+        new_state.self_notes = old_state.self_notes
+        new_state.branches = {"main": ConversationBranch("main", None, "Main Conversation")}
+        new_state.current_branch_id = "main"
+        user_states[user_id] = new_state
+
+    await update.message.reply_text(
+        "🗑 Da xoa toan bo ngu canh!\n"
+        "🆕 History + tasks + branches moi.\n"
+        "📊 Stats & preferences duoc giu lai.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
+
+    history_len = len(state.history)
+    mode_name = MODE_CONFIG[state.mode]["name"]
+    model_disp = get_model_display(state.mode, state.current_model)
+    cat = get_model_category(state.mode, state.current_model)
+    tier = get_model_tier(state.mode, state.current_model)
+    task_count = len(state.agent_tasks)
+    completed = sum(1 for t in state.agent_tasks if t.status == "completed")
+    failed = sum(1 for t in state.agent_tasks if t.status == "failed")
+    running = sum(1 for t in state.agent_tasks if t.status == "running")
+    kb_count = len(state.knowledge_base)
+    branch_count = len(state.branches)
+
+    status = (
+        f"ℹ️ Trang Thai Denia Bot\n"
+        f"{'━' * 24}\n\n"
+        f"👤 User: `{user_id}`\n"
+        f"🔄 Mode: {mode_name}\n"
+        f"🤖 Model: {model_disp}\n"
+        f"🏷 Category: `{cat}` | Tier: `{tier}`\n"
+        f"🆔 ID: `{state.current_model}`\n"
+        f"💬 History: `{history_len // 2}` cap hoi/dap\n"
+        f"📝 Tin nhan: `{history_len}/{MAX_HISTORY * 2}`\n"
+        f"🌿 Branches: `{branch_count}`\n"
+        f"📚 Knowledge Base: `{kb_count}` docs\n"
+        f"🤖 Agent: `{completed}✅ {failed}❌ {running}🔄 {task_count - completed - failed - running}⏳`\n"
+        f"🧠 Self-notes: `{len(state.self_notes)}`\n"
+        f"💰 Tong chi phi: `{format_vnd(state.stats.total_cost_vnd)}` VND\n"
+        f"📅 Bat dau: `{state.stats.first_seen}`\n"
+        f"🕐 Hoat dong cuoi: `{state.stats.last_active}`"
+    )
+    await update.message.reply_text(status, parse_mode=ParseMode.MARKDOWN)
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
+    s = state.stats
+
+    avg_latency = s.total_latency / s.total_requests if s.total_requests > 0 else 0
+    avg_cost = s.total_cost_vnd / s.total_requests if s.total_requests > 0 else 0
+
+    stats_text = (
+        f"📊 Thong Ke Chi Tiet\n"
+        f"{'━' * 24}\n\n"
+        f"🔢 Requests: `{s.total_requests}`\n"
+        f"📝 Input tokens: `{s.total_input_tokens:,}`\n"
+        f"💬 Output tokens: `{s.total_output_tokens:,}`\n"
+        f"📦 Tong tokens: `{s.total_input_tokens + s.total_output_tokens:,}`\n"
+        f"⏱ Tong latency: `{s.total_latency:.2f}s`\n"
+        f"⚡ Latency TB: `{avg_latency:.2f}s`\n"
+        f"💰 Tong chi phi: `{format_vnd(s.total_cost_vnd)}` VND\n"
+        f"💵 Chi phi TB: `{format_vnd(avg_cost)}`/req\n"
+        f"✅ Tasks thanh cong: `{s.tasks_completed}`\n"
+        f"❌ Tasks that bai: `{s.tasks_failed}`\n"
+        f"📁 Files da xu ly: `{s.files_processed}`\n"
+        f"🐍 Code da chay: `{s.code_executed}`\n"
+        f"📅 Bat dau: `{s.first_seen}`\n"
+        f"🕐 Cuoi: `{s.last_active}`"
+    )
+    await update.message.reply_text(stats_text, parse_mode=ParseMode.MARKDOWN)
+
+async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
+
+    if not state.agent_tasks:
+        await update.message.reply_text(
+            "📭 Chua co agent task nao.\n\n"
+            "Dung /agent <mo ta> de bat dau.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    msg = f"🤖 Lich Su Agent Tasks\n{'━' * 24}\n\n"
+    for i, task in enumerate(state.agent_tasks[-10:], 1):
+        status_emoji = {"completed": "✅", "failed": "❌", "running": "🔄", 
+                        "pending": "⏳", "planning": "📋", "coding": "💻",
+                        "reviewing": "🔍", "testing": "🧪", "pushing": "🚀"}.get(task.status, "❓")
+        msg += (
+            f"{i}. {status_emoji} `{task.task_id}`\n"
+            f"   📝 {task.description[:40]}...\n"
+            f"   💰 {format_vnd(task.cost_vnd)} VND | ⏰ {task.created_at}\n\n"
+        )
+
+    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+async def learn_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
+
+    if not state.self_notes:
+        await update.message.reply_text(
+            "🧠 Chua co ghi chu tu hoc.\n"
+            "AI se tu dong ghi nhan sau moi task.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    msg = f"🧠 Ghi Chu Tu Hoc Cua AI\n{'━' * 24}\n\n"
+    for i, note in enumerate(state.self_notes[-20:], 1):
+        msg += f"{i}. `{note[:120]}`\n"
+
+    await send_long_text(update, msg, filename="self_notes.txt")
+
+async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    code = ""
+    if update.message.reply_to_message and update.message.reply_to_message.text:
+        code = update.message.reply_to_message.text
+    elif context.args:
+        code = " ".join(context.args)
+
+    if not code:
+        await update.message.reply_text(
+            "❌ Cung cap code de phan tich:\n"
+            "• Reply vao tin nhan chua code va go /analyze\n"
+            "• Hoac: /analyze <code>",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    status_msg = await update.message.reply_text("🔍 Dang phan tich code...", parse_mode=ParseMode.MARKDOWN)
+
+    result = await agent_analyze_code(code)
+
+    score_bar = build_progress_bar(result["score"], 100, 15)
+
+    report = (
+        f"🔍 Ket Qua Phan Tich Code\n"
+        f"{'━' * 24}\n\n"
+        f"📊 Quality Score: `{result['score']}/100`\n"
+        f"`{score_bar}`\n"
+        f"📄 Ngon ngu: `{result['language']}` | Dong: `{result['lines']}`\n\n"
+    )
+
+    if result["issues"]:
+        report += f"❌ Loi Nghiem Trong ({len(result['issues'])}):\n"
+        for issue in result["issues"]:
+            report += f"  • {issue}\n"
+        report += "\n"
+
+    if result["warnings"]:
+        report += f"⚠️ Canh Bao ({len(result['warnings'])}):\n"
+        for warning in result["warnings"]:
+            report += f"  • {warning}\n"
+        report += "\n"
+
+    if result["info"]:
+        report += f"✅ Thong Tin ({len(result['info'])}):\n"
+        for info in result["info"]:
+            report += f"  • {info}\n"
+
+    if not result["issues"] and not result["warnings"]:
+        report += "🎉 Code sach! Khong phat hien van de.\n"
+
+    await status_msg.edit_text(report, parse_mode=ParseMode.MARKDOWN)
+
+async def run_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
+
+    code = ""
+    if update.message.reply_to_message and update.message.reply_to_message.text:
+        code = update.message.reply_to_message.text
+    elif context.args:
+        code = " ".join(context.args)
+
+    if not code:
+        await update.message.reply_text(
+            "❌ Cung cap code Python de chay:\n"
+            "• Reply vao tin nhan chua code va go /run\n"
+            "• Hoac: /run print('hello')\n\n"
+            "⚠️ Han che: Khong cho phep file I/O, network, system calls.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    status_msg = await update.message.reply_text("🐍 Dang chay code...", parse_mode=ParseMode.MARKDOWN)
+
+    success, stdout, stderr = await CodeInterpreter.execute(code, timeout=30)
+    state.stats.code_executed += 1
+
+    result_emoji = "✅" if success else "❌"
+    output = stdout if stdout else "(khong co output)"
+    error = stderr if stderr else ""
+
+    report = (
+        f"{result_emoji} Ket Qua Thuc Thi\n"
+        f"{'━' * 24}\n\n"
+        f"📤 Output:\n"
+        f"```\n{truncate_text(output, 3500)}\n```\n"
+    )
+    if error:
+        report += (
+            f"📛 Error:\n"
+            f"```\n{truncate_text(error, 1500)}\n```\n"
+        )
+
+    await status_msg.edit_text(report, parse_mode=ParseMode.MARKDOWN)
+
+async def docker_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    project_type = context.args[0] if context.args else "python"
+    dockerfile = generate_dockerfile(project_type)
+
+    bio = io.BytesIO(dockerfile.encode('utf-8'))
+    bio.name = "Dockerfile"
+    await update.message.reply_document(
+        document=bio,
+        caption=f"🐳 Dockerfile cho {project_type}\n\n"
+                f"💡 Dung /git push owner/repo Dockerfile de push len GitHub.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+async def cicd_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    project_type = context.args[0] if context.args else "python"
+    workflow = generate_github_actions(project_type)
+
+    bio = io.BytesIO(workflow.encode('utf-8'))
+    bio.name = "ci.yml"
+    await update.message.reply_document(
+        document=bio,
+        caption=f"⚙️ GitHub Actions cho {project_type}\n\n"
+                f"💡 Dung /git workflow owner/repo ci de push.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+async def diff_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args and not (update.message.reply_to_message and update.message.reply_to_message.text):
+        await update.message.reply_text(
+            "❌ Cu phap: /diff <code1> | <code2>\n"
+            "Hoac reply vao tin nhan chua code1, go /diff <code2>",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    text = " ".join(context.args) if context.args else ""
+    if "|" in text:
+        parts = text.split("|", 1)
+        code1, code2 = parts[0].strip(), parts[1].strip()
+    elif update.message.reply_to_message:
+        code1 = update.message.reply_to_message.text
+        code2 = text
+    else:
+        await update.message.reply_text("❌ Can 2 doan code de so sanh.", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    lines1 = code1.splitlines()
+    lines2 = code2.splitlines()
+
+    diff_lines = []
+    max_len = max(len(lines1), len(lines2))
+    for i in range(max_len):
+        l1 = lines1[i] if i < len(lines1) else ""
+        l2 = lines2[i] if i < len(lines2) else ""
+        if l1 != l2:
+            diff_lines.append(f"-{i+1}: {l1[:50]}")
+            diff_lines.append(f"+{i+1}: {l2[:50]}")
+
+    if not diff_lines:
+        await update.message.reply_text("✅ Hai doan code giong nhau!", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    diff_text = "\n".join(diff_lines[:50])
+    await update.message.reply_text(
+        f"🔍 Diff Result\n"
+        f"{'━' * 20}\n"
+        f"```\n{diff_text}\n```",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+async def testgen_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    code = ""
+    if update.message.reply_to_message and update.message.reply_to_message.text:
+        code = update.message.reply_to_message.text
+    elif context.args:
+        code = " ".join(context.args)
+
+    if not code:
+        await update.message.reply_text(
+            "❌ Reply code hoac go: /testgen <code>",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    status_msg = await update.message.reply_text("🧪 Dang tao unit tests...", parse_mode=ParseMode.MARKDOWN)
+
+    session = context.bot_data.get('session')
+    if not session:
+        session = aiohttp.ClientSession()
+        context.bot_data['session'] = session
+
+    prompt = (
+        f"Viet unit tests day du cho code sau bang pytest:\n\n"
+        f"```python\n{code}\n```\n\n"
+        f"Yeu cau:\n"
+        f"- Bao phu cac truong hop chinh, edge cases, loi\n"
+        f"- Dung pytest va fixtures neu can\n"
+        f"- Bao gom docstring giai thich moi test\n"
+        f"- Chi tra ve code test, khong giai thich"
+    )
+
+    messages = [{"role": "user", "content": prompt}]
+    test_code, metrics = await call_chat_api(session, "claude-sonnet-4.6", messages, status_msg, max_tokens=4096)
+
+    await status_msg.delete()
+    await send_long_text(update, f"🧪 Unit Tests Generated\n{'━' * 20}\n\n```python\n{test_code}\n```", filename="test_generated.py")
+
+async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Cu phap: /search <query>\nVi du: /search Python asyncio best practices",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    query = " ".join(context.args)
+    status_msg = await update.message.reply_text(f"🔍 Dang tim: `{query}`...", parse_mode=ParseMode.MARKDOWN)
+
+    session = context.bot_data.get('session')
+    if not session:
+        session = aiohttp.ClientSession()
+        context.bot_data['session'] = session
+
+    results = await web_search(session, query, 5)
+
+    msg = f"🔍 Ket Qua Tim Kiem\n{'━' * 22}\n\n"
+    for i, r in enumerate(results, 1):
+        msg += f"{i}. *{r['title']}*\n   🔗 {r['url']}\n   📝 {r['snippet'][:100]}...\n\n"
+
+    await status_msg.edit_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+async def fetch_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("❌ Cu phap: /fetch <url>", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    url = context.args[0]
+    status_msg = await update.message.reply_text(f"🌐 Dang tai: `{url}`...", parse_mode=ParseMode.MARKDOWN)
+
+    session = context.bot_data.get('session')
+    if not session:
+        session = aiohttp.ClientSession()
+        context.bot_data['session'] = session
+
+    content = await fetch_webpage(session, url)
+
+    await status_msg.delete()
+    await send_long_text(update, f"🌐 Noi Dung Trang Web\n{'━' * 22}\n\n{content}", filename="webpage.txt")
+
+async def image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Cu phap: /image <mo ta>\n"
+            "Vi du: /image a futuristic city at sunset, cyberpunk style",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    prompt = " ".join(context.args)
+    status_msg = await update.message.reply_text("🎨 Dang tao hinh anh...", parse_mode=ParseMode.MARKDOWN)
+
+    session = context.bot_data.get('session')
+    if not session:
+        session = aiohttp.ClientSession()
+        context.bot_data['session'] = session
+
+    try:
+        image_bytes, info = await call_image_api(session, prompt, status_msg=status_msg)
+
+        bio = io.BytesIO(image_bytes)
+        bio.name = f"generated_{int(time.time())}.png"
+
+        await status_msg.delete()
+        await update.message.reply_photo(
+            photo=bio,
+            caption=f"🎨 Generated Image\n\n📝 Prompt: `{prompt[:100]}`\nℹ️ {info}"
+        )
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Loi tao anh: `{str(e)[:300]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def tts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args and not (update.message.reply_to_message and update.message.reply_to_message.text):
+        await update.message.reply_text(
+            "❌ Cu phap: /tts <van ban>\nHoac reply vao tin nhan van ban.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    text = " ".join(context.args) if context.args else update.message.reply_to_message.text
+
+    status_msg = await update.message.reply_text("🔊 Dang tong hop giong noi...", parse_mode=ParseMode.MARKDOWN)
+
+    session = context.bot_data.get('session')
+    if not session:
+        session = aiohttp.ClientSession()
+        context.bot_data['session'] = session
+
+    try:
+        audio_bytes, metrics = await call_tts_api(session, DEFAULT_TTS_MODEL, text, status_msg)
+
+        bio = io.BytesIO(audio_bytes)
+        bio.name = f"tts_{int(time.time())}.mp3"
+
+        await status_msg.delete()
+        await update.message.reply_voice(
+            voice=bio,
+            caption=f"🔊 Text-to-Speech\n📝 `{len(text)}` chars | 📦 `{len(audio_bytes)}` bytes"
+        )
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Loi TTS: `{str(e)[:300]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def stt_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.reply_to_message or not update.message.reply_to_message.voice:
+        await update.message.reply_text(
+            "❌ Reply vao tin nhan voice message de chuyen thanh text.\n"
+            "(Tinh nang nay can integration voi Whisper API)",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    await update.message.reply_text(
+        "🎤 Speech-to-Text\n"
+        "Dang tai file voice... (can tich hop Whisper API day du)\n"
+        "Tam thoi: Hay dung /tts de tao giong noi tu text.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+async def vision_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.reply_to_message or not update.message.reply_to_message.photo:
+        await update.message.reply_text(
+            "❌ Reply vao tin nhan anh de phan tich.\n"
+            "Vi du: Gui anh → Reply anh → Go /vision",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    status_msg = await update.message.reply_text("👁 Dang phan tich hinh anh...", parse_mode=ParseMode.MARKDOWN)
+
+    photo = update.message.reply_to_message.photo[-1]
+    file = await context.bot.get_file(photo.file_id)
+
+    session = context.bot_data.get('session')
+    if not session:
+        session = aiohttp.ClientSession()
+        context.bot_data['session'] = session
+
+    async with session.get(file.file_path) as resp:
+        image_bytes = await resp.read()
+
+    image_b64 = base64.b64encode(image_bytes).decode('utf-8')
+
+    prompt = " ".join(context.args) if context.args else "Describe this image in detail."
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
+            ]
+        }
+    ]
+
+    try:
+        result, metrics = await call_chat_api(
+            session, DEFAULT_VISION_MODEL, messages, status_msg, max_tokens=2048
+        )
+
+        await status_msg.delete()
+        await update.message.reply_text(
+            f"👁 Vision Analysis\n{'━' * 20}\n\n{result}",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        await status_msg.edit_text(
+            f"⚠️ Vision API Error: `{str(e)[:300]}`\n"
+            f"Co the model khong ho tro vision. Thu doi model bang /models.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+async def kb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
+
+    if not context.args:
+        await update.message.reply_text(
+            "📚 Knowledge Base (RAG)\n"
+            f"{'━' * 22}\n\n"
+            "• /kb upload — Upload file (reply vao file)\n"
+            "• /kb ask <cau hoi> — Hoi dua tren tai lieu\n"
+            "• /kb list — Xem tai lieu da upload\n"
+            "• /kb clear — Xoa toan bo KB\n\n"
+            f"Hien tai: `{len(state.knowledge_base)}` documents",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    subcmd = context.args[0].lower()
+
+    if subcmd == "upload":
+        if not update.message.reply_to_message or not update.message.reply_to_message.document:
+            await update.message.reply_text(
+                "❌ Reply vao tin nhan co file (PDF, TXT, DOCX) de upload.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        doc = update.message.reply_to_message.document
+        if doc.file_size > 5 * 1024 * 1024:
+            await update.message.reply_text("❌ File qua lon (>5MB).", parse_mode=ParseMode.MARKDOWN)
+            return
+
+        status_msg = await update.message.reply_text("📤 Dang tai file...", parse_mode=ParseMode.MARKDOWN)
+
+        file = await context.bot.get_file(doc.file_id)
+        session = context.bot_data.get('session')
+        if not session:
+            session = aiohttp.ClientSession()
+            context.bot_data['session'] = session
+
+        async with session.get(file.file_path) as resp:
+            file_bytes = await resp.read()
+
+        try:
+            text = file_bytes.decode('utf-8', errors='ignore')
+        except:
+            text = str(file_bytes)
+
+        chunks = SimpleRAG.chunk_text(text, chunk_size=1000, overlap=100)
+
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {API_KEY}"}
+        payload = {"model": "text-embedding-3-small", "input": text[:4000]}
+
+        async with session.post(API_EMBED_URL, headers=headers, json=payload) as resp:
+            if resp.status == 200:
+                result = await resp.json()
+                embedding = result.get('data', [{}])[0].get('embedding', [])
+            else:
+                embedding = []
+
+        doc_id = generate_doc_id()
+        knowledge_doc = KnowledgeDocument(
+            doc_id=doc_id,
+            filename=doc.file_name,
+            content=text,
+            embedding=embedding,
+            chunk_count=len(chunks)
+        )
+        state.knowledge_base.append(knowledge_doc)
+        state.stats.files_processed += 1
+
+        await status_msg.edit_text(
+            f"✅ Da upload!\n\n"
+            f"📄 `{doc.file_name}`\n"
+            f"🆔 `{doc_id}`\n"
+            f"📊 Size: `{len(text)}` chars\n"
+            f"🧩 Chunks: `{len(chunks)}`\n"
+            f"📚 Tong KB: `{len(state.knowledge_base)}` docs",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+    elif subcmd == "ask":
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ Cu phap: /kb ask <cau hoi>", parse_mode=ParseMode.MARKDOWN)
+            return
+
+        query = " ".join(context.args[1:])
+        if not state.knowledge_base:
+            await update.message.reply_text("📭 KB trong. Upload tai lieu truoc bang /kb upload.", parse_mode=ParseMode.MARKDOWN)
+            return
+
+        status_msg = await update.message.reply_text("🧠 Dang truy van KB...", parse_mode=ParseMode.MARKDOWN)
+
+        session = context.bot_data.get('session')
+        if not session:
+            session = aiohttp.ClientSession()
+            context.bot_data['session'] = session
+
+        results = await SimpleRAG.query_knowledge_base(session, query, state.knowledge_base)
+
+        if not results:
+            await status_msg.edit_text("❌ Khong tim thay thong tin lien quan.", parse_mode=ParseMode.MARKDOWN)
+            return
+
+        context_text = "\n\n".join([f"[Tu {fname} — do tuong dong {score:.2f}]:\n{content[:500]}" for fname, score, content in results])
+
+        messages = [
+            {"role": "system", "content": "Tra loi cau hoi dua tren tai lieu duoc cung cap. Neu khong co thong tin, hay noi ro."},
+            {"role": "user", "content": f"Cau hoi: {query}\n\nTai lieu tham khao:\n{context_text}"}
         ]
 
-        analysis, metrics = await StreamingHandler.agent_generate(
-            model_id, provider, analyze_messages, "Phân tích", status_msg
+        answer, metrics = await call_chat_api(session, DEFAULT_CHAT_MODEL, messages, status_msg, max_tokens=2048)
+
+        sources = "\n".join([f"• `{fname}` ({score:.2f})" for fname, score, _ in results])
+
+        await status_msg.edit_text(
+            f"📚 Tra Loi Tu KB\n"
+            f"{'━' * 22}\n\n"
+            f"❓ Cau hoi: `{query}`\n\n"
+            f"💡 Tra loi:\n{answer}\n\n"
+            f"📎 Nguon:\n{sources}",
+            parse_mode=ParseMode.MARKDOWN
         )
-        task.add_checkpoint("analyze", "success", {"analysis": analysis[:500]}, 
-                          int(metrics.get('latency', 0) * 1000))
-        task.metrics.update(metrics)
 
-        # Detect language from description
-        task.detected_language = _detect_project_language(task.description, analysis)
+    elif subcmd == "list":
+        if not state.knowledge_base:
+            await update.message.reply_text("📭 KB trong.", parse_mode=ParseMode.MARKDOWN)
+            return
 
-        # Step 2: PLAN
+        msg = f"📚 Knowledge Base Documents\n{'━' * 24}\n\n"
+        for i, doc in enumerate(state.knowledge_base, 1):
+            msg += f"{i}. 📄 `{doc.filename}`\n   🆔 `{doc.doc_id}` | 🧩 `{doc.chunk_count}` chunks\n"
+
+        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+    elif subcmd == "clear":
+        count = len(state.knowledge_base)
+        state.knowledge_base = []
+        await update.message.reply_text(f"🗑 Da xoa {count} tai lieu.", parse_mode=ParseMode.MARKDOWN)
+
+    else:
+        await update.message.reply_text("❌ Lenh KB khong hop le.", parse_mode=ParseMode.MARKDOWN)
+
+async def branch_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
+
+    if not context.args:
+        current = state.branches.get(state.current_branch_id)
+        msg = (
+            f"🌿 Conversation Branches\n"
+            f"{'━' * 22}\n\n"
+            f"🌳 Hien tai: `{state.current_branch_id}` — {current.name if current else 'Unknown'}\n"
+            f"📊 Tong branches: `{len(state.branches)}`\n\n"
+            f"📋 Lenh:\n"
+            f"• /branch new <ten> — Tao nhanh moi\n"
+            f"• /branch switch <id> — Chuyen nhanh\n"
+            f"• /branch list — Liet ke\n"
+            f"• /branch merge <id> — Gop vao nhanh hien tai\n"
+            f"• /branch delete <id> — Xoa nhanh"
+        )
+        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    subcmd = context.args[0].lower()
+
+    if subcmd == "new":
+        name = " ".join(context.args[1:]) if len(context.args) > 1 else f"Branch {len(state.branches)+1}"
+        branch_id = generate_branch_id()
+        new_branch = ConversationBranch(branch_id, state.current_branch_id, name)
+        current = state.branches.get(state.current_branch_id)
+        if current:
+            new_branch.messages = current.messages.copy()
+        state.branches[branch_id] = new_branch
+        state.current_branch_id = branch_id
+
+        await update.message.reply_text(
+            f"🌿 Nhanh Moi Da Tao!\n"
+            f"🆔 `{branch_id}`\n"
+            f"📛 `{name}`\n"
+            f"👤 Parent: `{new_branch.parent_id}`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+    elif subcmd == "switch":
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ Cu phap: /branch switch <id>", parse_mode=ParseMode.MARKDOWN)
+            return
+        branch_id = context.args[1]
+        if branch_id in state.branches:
+            state.current_branch_id = branch_id
+            branch = state.branches[branch_id]
+            state.history = branch.messages.copy()
+            await update.message.reply_text(
+                f"🌿 Da chuyen nhanh!\n"
+                f"🆔 `{branch_id}`\n"
+                f"📛 `{branch.name}`\n"
+                f"💬 `{len(branch.messages)}` messages",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            await update.message.reply_text("❌ Khong tim thay nhanh.", parse_mode=ParseMode.MARKDOWN)
+
+    elif subcmd == "list":
+        msg = f"🌿 Danh Sach Branches\n{'━' * 22}\n\n"
+        for bid, branch in state.branches.items():
+            prefix = "✅ " if bid == state.current_branch_id else "  "
+            msg += f"{prefix}`{bid}` — {branch.name} ({len(branch.messages)} msgs)\n"
+        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+    elif subcmd == "merge":
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ Cu phap: /branch merge <id>", parse_mode=ParseMode.MARKDOWN)
+            return
+        branch_id = context.args[1]
+        if branch_id not in state.branches:
+            await update.message.reply_text("❌ Khong tim thay nhanh.", parse_mode=ParseMode.MARKDOWN)
+            return
+
+        source = state.branches[branch_id]
+        current = state.branches[state.current_branch_id]
+        current.messages.extend(source.messages)
+        state.history = current.messages.copy()
+
+        await update.message.reply_text(
+            f"🔀 Da gop nhanh!\n"
+            f"📥 `{branch_id}` → `{state.current_branch_id}`\n"
+            f"💬 Tong: `{len(current.messages)}` messages",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+    elif subcmd == "delete":
+        if len(context.args) < 2:
+            await update.message.reply_text("❌ Cu phap: /branch delete <id>", parse_mode=ParseMode.MARKDOWN)
+            return
+        branch_id = context.args[1]
+        if branch_id == "main":
+            await update.message.reply_text("❌ Khong the xoa nhanh main.", parse_mode=ParseMode.MARKDOWN)
+            return
+        if branch_id in state.branches:
+            del state.branches[branch_id]
+            if state.current_branch_id == branch_id:
+                state.current_branch_id = "main"
+                state.history = state.branches["main"].messages.copy()
+            await update.message.reply_text(f"🗑 Da xoa nhanh: `{branch_id}`", parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text("❌ Khong tim thay nhanh.", parse_mode=ParseMode.MARKDOWN)
+
+    else:
+        await update.message.reply_text("❌ Lenh branch khong hop le.", parse_mode=ParseMode.MARKDOWN)
+
+async def remind_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or len(context.args) < 2:
+        await update.message.reply_text(
+            "⏰ Hen Gio Nhac Nho\n"
+            f"{'━' * 22}\n\n"
+            "Cu phap: /remind <time> <message>\n\n"
+            "Thoi gian:\n"
+            "• 10s — 10 giay\n"
+            "• 5m — 5 phut\n"
+            "• 2h — 2 gio\n"
+            "• 1d — 1 ngay\n\n"
+            "Vi du:\n"
+            "• /remind 10m uong nuoc\n"
+            "• /remind 2h hop team\n"
+            "• /remind 1d deadline bao cao",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    time_str = context.args[0].lower()
+    message = " ".join(context.args[1:])
+
+    multiplier = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    match = re.match(r'(\d+)([smhd])', time_str)
+    if not match:
+        await update.message.reply_text("❌ Dinh dang thoi gian khong hop le.", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    amount, unit = int(match.group(1)), match.group(2)
+    seconds = amount * multiplier[unit]
+
+    if seconds > 604800:
+        await update.message.reply_text("❌ Toi da 7 ngay.", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    trigger_time = datetime.now() + timedelta(seconds=seconds)
+    job_id = generate_job_id()
+    job = ScheduledJob(
+        job_id=job_id,
+        user_id=update.effective_user.id,
+        description=message,
+        trigger_time=trigger_time,
+        command="remind",
+        args=message
+    )
+
+    scheduled_jobs_global.append(job)
+
+    await update.message.reply_text(
+        f"⏰ Da dat nhac nho!\n\n"
+        f"📝 `{message}`\n"
+        f"⏱ Sau: `{amount}{unit}`\n"
+        f"🕐 Luc: `{trigger_time.strftime('%H:%M:%S')}`\n"
+        f"🆔 `{job_id}`",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+    async def send_reminder():
+        await asyncio.sleep(seconds)
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"⏰ Nhac Nho!\n\n📝 `{message}`\n🕐 Da den gio!",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            logger.error(f"Reminder error: {e}")
+
+    asyncio.create_task(send_reminder())
+
+async def persona_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
+
+    if not context.args:
+        await update.message.reply_text(
+            "🎭 Tinh Cach AI\n"
+            f"{'━' * 20}\n\n"
+            "Cu phap: /persona <mo ta>\n\n"
+            "Vi du:\n"
+            "• /persona Ban la senior dev Python, noi ngan gon\n"
+            "• /persona Ban la giao vien tieng Anh, kien nhan\n"
+            "• /persona Ban la hacker ethic, thich bao mat\n\n"
+            f"Hien tai: `{state.preferences.verbosity}` verbosity",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    persona = " ".join(context.args)
+    state.self_notes.append(f"Persona: {persona}")
+
+    await update.message.reply_text(
+        f"🎭 Da dat tinh cach!\n\n"
+        f"📝 `{persona[:200]}`\n\n"
+        f"💡 AI se ap dung trong cac cuoc tro chuyen toi.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
+    prefs = state.preferences
+
+    if not context.args:
+        keyboard = [
+            [InlineKeyboardButton(f"🌐 Ngon ngu: {prefs.language}", callback_data="set_lang")],
+            [InlineKeyboardButton(f"💻 Code style: {prefs.code_style}", callback_data="set_style")],
+            [InlineKeyboardButton(f"📢 Verbosity: {prefs.verbosity}", callback_data="set_verb")],
+            [InlineKeyboardButton(f"🎨 Theme: {prefs.theme}", callback_data="set_theme")],
+            [InlineKeyboardButton(f"⚡ Auto-run: {'Bat' if prefs.auto_execute else 'Tat'}", callback_data="set_auto")],
+            [InlineKeyboardButton(f"🔔 Thong bao: {'Bat' if prefs.notifications else 'Tat'}", callback_data="set_notif")],
+        ]
+        await update.message.reply_text(
+            f"⚙️ Cai Dat Ca Nhan\n"
+            f"{'━' * 20}\n\n"
+            f"👤 User: `{user_id}`\n"
+            f"🌐 Ngon ngu: `{prefs.language}`\n"
+            f"💻 Code style: `{prefs.code_style}`\n"
+            f"📢 Verbosity: `{prefs.verbosity}`\n"
+            f"🎨 Theme: `{prefs.theme}`\n"
+            f"⚡ Auto-run: `{'Bat' if prefs.auto_execute else 'Tat'}`\n"
+            f"🔔 Thong bao: `{'Bat' if prefs.notifications else 'Tat'}`\n\n"
+            f"👇 Chon de thay doi:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    subcmd = context.args[0].lower()
+    if subcmd == "lang" and len(context.args) > 1:
+        prefs.language = context.args[1]
+        await update.message.reply_text(f"🌐 Ngon ngu: `{prefs.language}`", parse_mode=ParseMode.MARKDOWN)
+    elif subcmd == "style" and len(context.args) > 1:
+        prefs.code_style = context.args[1]
+        await update.message.reply_text(f"💻 Code style: `{prefs.code_style}`", parse_mode=ParseMode.MARKDOWN)
+    elif subcmd == "verbosity" and len(context.args) > 1:
+        prefs.verbosity = context.args[1]
+        await update.message.reply_text(f"📢 Verbosity: `{prefs.verbosity}`", parse_mode=ParseMode.MARKDOWN)
+    else:
+        await update.message.reply_text("❌ Cu phap khong hop le.", parse_mode=ParseMode.MARKDOWN)
+
+async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
+
+    export_data = {
+        "user_id": user_id,
+        "exported_at": datetime.now().isoformat(),
+        "mode": state.mode,
+        "current_model": state.current_model,
+        "history": state.history,
+        "branches": {bid: {"name": b.name, "messages": b.messages} for bid, b in state.branches.items()},
+        "stats": asdict(state.stats),
+        "preferences": asdict(state.preferences),
+        "agent_tasks": [asdict(t) for t in state.agent_tasks],
+        "knowledge_base": [asdict(d) for d in state.knowledge_base],
+        "self_notes": state.self_notes
+    }
+
+    json_str = json.dumps(export_data, indent=2, ensure_ascii=False, default=str)
+    bio = io.BytesIO(json_str.encode('utf-8'))
+    bio.name = f"denia_export_{user_id}_{int(time.time())}.json"
+
+    await update.message.reply_document(
+        document=bio,
+        caption=f"📤 Xuat Du Lieu\n"
+                f"💬 History: `{len(state.history)}` msgs\n"
+                f"🌿 Branches: `{len(state.branches)}`\n"
+                f"🤖 Tasks: `{len(state.agent_tasks)}`\n"
+                f"📚 KB: `{len(state.knowledge_base)}` docs",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+async def import_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.reply_to_message or not update.message.reply_to_message.document:
+        await update.message.reply_text(
+            "❌ Reply vao file JSON da xuat de nhap lai.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    doc = update.message.reply_to_message.document
+    if not doc.file_name.endswith('.json'):
+        await update.message.reply_text("❌ Chi chap nhan file JSON.", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    status_msg = await update.message.reply_text("📥 Dang nhap du lieu...", parse_mode=ParseMode.MARKDOWN)
+
+    file = await context.bot.get_file(doc.file_id)
+    session = context.bot_data.get('session')
+    if not session:
+        session = aiohttp.ClientSession()
+        context.bot_data['session'] = session
+
+    async with session.get(file.file_path) as resp:
+        data = await resp.json()
+
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
+
+    if "history" in data:
+        state.history = data["history"]
+    if "branches" in data:
+        state.branches = {}
+        for bid, bdata in data["branches"].items():
+            branch = ConversationBranch(bid, None, bdata.get("name", "Unknown"))
+            branch.messages = bdata.get("messages", [])
+            state.branches[bid] = branch
+    if "self_notes" in data:
+        state.self_notes = data["self_notes"]
+
+    await status_msg.edit_text(
+        f"✅ Da nhap du lieu!\n\n"
+        f"💬 History: `{len(state.history)}` msgs\n"
+        f"🌿 Branches: `{len(state.branches)}`\n"
+        f"🧠 Notes: `{len(state.self_notes)}`",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+# ============================ GITHUB COMMANDS ============================
+
+async def git_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            f"🌐 GitHub Agent — Full Control\n"
+            f"{'━' * 26}\n\n"
+            f"📦 Repository:\n"
+            f"• /git repo <ten> [desc] [private] — Tao repo\n"
+            f"• /git get <o/r> <path> — Doc file\n"
+            f"• /git list <o/r> [path] — Liet ke\n"
+            f"• /git commits <o/r> — Xem commits\n"
+            f"• /git search <query> — Tim repo\n"
+            f"• /git fork <o/r> — Fork repo\n"
+            f"• /git star <o/r> — Star repo\n\n"
+            f"📝 File Operations:\n"
+            f"• /git push <o/r> <path> — Push (reply code)\n"
+            f"• /git update <o/r> <path> — Update (reply code)\n"
+            f"• /git delete <o/r> <path> — Xoa\n\n"
+            f"🌿 Branch & PR:\n"
+            f"• /git branch <o/r> <new> — Tao branch\n"
+            f"• /git pr <o/r> <title> <head> <base> — Tao PR\n"
+            f"• /git issue <o/r> <title> — Tao issue\n"
+            f"• /git release <o/r> <tag> [name] — Tao release\n"
+            f"• /git workflow <o/r> <name> — Tao CI workflow\n\n"
+            f"💡 Meo: Dung reply de push code dai",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    subcmd = context.args[0].lower()
+
+    handlers = {
+        "repo": _git_repo, "push": _git_push, "get": _git_get,
+        "list": _git_list, "branch": _git_branch, "pr": _git_pr,
+        "delete": _git_delete, "commits": _git_commits, "update": _git_update,
+        "issue": _git_issue, "release": _git_release, "workflow": _git_workflow,
+        "search": _git_search, "fork": _git_fork, "star": _git_star,
+    }
+
+    if subcmd in handlers:
+        await handlers[subcmd](update, context)
+    else:
+        await update.message.reply_text(
+            f"❌ Lenh GitHub khong hop le: `{subcmd}`\n"
+            f"Dung /git de xem danh sach.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+async def _git_repo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "❌ Cu phap: /git repo <ten> [description] [private]\n"
+            "Vi du: /git repo my-project Bot AI cua toi",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    repo_name = sanitize_repo_name(context.args[1])
+    description = " ".join(context.args[2:]) if len(context.args) > 2 else ""
+    private = "private" in description.lower()
+    if private:
+        description = description.replace("private", "").strip()
+
+    status_msg = await update.message.reply_text(
+        f"⏳ Dang tao repository...\n"
+        f"📦 `{repo_name}`",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+    try:
+        success, data = await github_agent.create_repo(repo_name, description, private)
+        if success:
+            repo_url = data.get("html_url", "")
+            clone_url = data.get("clone_url", "")
+            await status_msg.edit_text(
+                f"✅ Repository da tao!\n\n"
+                f"📦 Ten: `{repo_name}`\n"
+                f"🔗 URL: {repo_url}\n"
+                f"📥 Clone: `{clone_url}`\n"
+                f"🔒 Private: `{'Co' if private else 'Khong'}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
+            await status_msg.edit_text(
+                f"❌ Loi tao repo:\n`{error[:400]}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def _git_push(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "❌ Cu phap: /git push <owner/repo> <path>\n"
+            "Reply vao tin nhan chua code.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    repo_path = context.args[1]
+    file_path = context.args[2]
+
+    if "/" not in repo_path:
+        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    owner, repo = repo_path.split("/", 1)
+
+    content = ""
+    if update.message.reply_to_message and update.message.reply_to_message.text:
+        content = update.message.reply_to_message.text
+    elif len(context.args) > 3:
+        content = " ".join(context.args[3:])
+
+    if not content:
+        await update.message.reply_text("❌ Thieu noi dung file!", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    status_msg = await update.message.reply_text(
+        f"⏳ Dang push file...\n"
+        f"📁 `{file_path}` → `{repo_path}`",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+    try:
+        success, data = await github_agent.create_file(
+            owner, repo, file_path, content,
+            f"feat: add {file_path} via Denia Bot"
+        )
+        if success:
+            file_url = data.get("content", {}).get("html_url", "") if isinstance(data, dict) else ""
+            await status_msg.edit_text(
+                f"✅ Da push file!\n\n"
+                f"📁 File: `{file_path}`\n"
+                f"📦 Repo: `{repo_path}`\n"
+                f"🔗 URL: {file_url}\n"
+                f"📊 Size: `{len(content)}` chars",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
+            await status_msg.edit_text(f"❌ Loi push:\n`{error[:400]}`", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def _git_get(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "❌ Cu phap: /git get <owner/repo> <path>",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    repo_path = context.args[1]
+    file_path = context.args[2]
+
+    if "/" not in repo_path:
+        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    owner, repo = repo_path.split("/", 1)
+
+    status_msg = await update.message.reply_text(
+        f"⏳ Dang lay file...\n"
+        f"📁 `{file_path}` from `{repo_path}`",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+    try:
+        success, data = await github_agent.get_file(owner, repo, file_path)
+        if success:
+            content_encoded = data.get("content", "") if isinstance(data, dict) else ""
+            try:
+                content = base64.b64decode(content_encoded.replace("\n", "")).decode('utf-8')
+            except:
+                content = content_encoded
+
+            size = data.get("size", len(content)) if isinstance(data, dict) else len(content)
+            sha = data.get("sha", "")[:8] if isinstance(data, dict) else ""
+
+            header = (
+                f"📄 File Content\n"
+                f"{'━' * 20}\n"
+                f"📁 Path: `{file_path}`\n"
+                f"📦 Repo: `{repo_path}`\n"
+                f"📊 Size: `{size}` bytes\n"
+                f"🔑 SHA: `{sha}...`\n\n"
+            )
+
+            full_text = header + f"```\n{content}\n```"
+
+            await status_msg.delete()
+            await send_long_text(update, full_text, filename=file_path.replace("/", "_"))
+        else:
+            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
+            await status_msg.edit_text(f"❌ Loi:\n`{error[:400]}`", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def _git_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text("❌ Cu phap: /git list <owner/repo> [path]", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    repo_path = context.args[1]
+    path = context.args[2] if len(context.args) > 2 else ""
+
+    if "/" not in repo_path:
+        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    owner, repo = repo_path.split("/", 1)
+
+    status_msg = await update.message.reply_text("⏳ Dang liet ke files...", parse_mode=ParseMode.MARKDOWN)
+
+    try:
+        success, data = await github_agent.list_files(owner, repo, path)
+        if success and isinstance(data, list):
+            msg = f"📂 File List — `{repo_path}`\n{'━' * 22}\n\n"
+            for item in data:
+                item_type = item.get("type", "")
+                name = item.get("name", "")
+                size = item.get("size", 0)
+                emoji = "📁" if item_type == "dir" else "📄"
+                msg += f"{emoji} `{name}`"
+                if item_type == "file":
+                    msg += f" ({size} bytes)"
+                msg += "\n"
+
+            await status_msg.edit_text(msg, parse_mode=ParseMode.MARKDOWN)
+        else:
+            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
+            await status_msg.edit_text(f"❌ Loi:\n`{error[:400]}`", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def _git_branch(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 3:
+        await update.message.reply_text("❌ Cu phap: /git branch <owner/repo> <new_branch>", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    repo_path = context.args[1]
+    new_branch = context.args[2]
+
+    if "/" not in repo_path:
+        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    owner, repo = repo_path.split("/", 1)
+
+    status_msg = await update.message.reply_text(
+        f"⏳ Dang tao branch...\n🌿 `{new_branch}`",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+    try:
+        success, data = await github_agent.create_branch(owner, repo, new_branch)
+        if success:
+            await status_msg.edit_text(
+                f"✅ Branch da tao!\n\n🌿 `{new_branch}`\n📦 `{repo_path}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
+            await status_msg.edit_text(f"❌ Loi:\n`{error[:400]}`", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def _git_pr(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 5:
+        await update.message.reply_text(
+            "❌ Cu phap: /git pr <owner/repo> <title> <head> <base>",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    repo_path = context.args[1]
+    title = context.args[2]
+    head = context.args[3]
+    base = context.args[4]
+
+    if "/" not in repo_path:
+        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    owner, repo = repo_path.split("/", 1)
+
+    status_msg = await update.message.reply_text("⏳ Dang tao Pull Request...", parse_mode=ParseMode.MARKDOWN)
+
+    try:
+        success, data = await github_agent.create_pr(owner, repo, title, head, base)
+        if success:
+            pr_url = data.get("html_url", "") if isinstance(data, dict) else ""
+            pr_num = data.get("number", "") if isinstance(data, dict) else ""
+            await status_msg.edit_text(
+                f"✅ Pull Request da tao!\n\n"
+                f"🔢 #{pr_num}\n"
+                f"📝 Title: `{title}`\n"
+                f"🌿 `{head}` → `{base}`\n"
+                f"🔗 {pr_url}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
+            await status_msg.edit_text(f"❌ Loi:\n`{error[:400]}`", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def _git_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 3:
+        await update.message.reply_text("❌ Cu phap: /git delete <owner/repo> <path>", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    repo_path = context.args[1]
+    file_path = context.args[2]
+
+    if "/" not in repo_path:
+        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    owner, repo = repo_path.split("/", 1)
+
+    status_msg = await update.message.reply_text(
+        f"⏳ Dang xoa file...\n🗑 `{file_path}`",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+    try:
+        success_get, data_get = await github_agent.get_file(owner, repo, file_path)
+        if not success_get:
+            await status_msg.edit_text(f"❌ Khong tim thay file: `{file_path}`", parse_mode=ParseMode.MARKDOWN)
+            return
+
+        sha = data_get.get("sha", "") if isinstance(data_get, dict) else ""
+
+        success, data = await github_agent.delete_file(
+            owner, repo, file_path,
+            f"chore: delete {file_path} via Denia Bot",
+            sha
+        )
+        if success:
+            await status_msg.edit_text(
+                f"✅ Da xoa file!\n\n🗑 `{file_path}`\n📦 `{repo_path}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
+            await status_msg.edit_text(f"❌ Loi:\n`{error[:400]}`", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def _git_commits(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text("❌ Cu phap: /git commits <owner/repo>", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    repo_path = context.args[1]
+
+    if "/" not in repo_path:
+        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    owner, repo = repo_path.split("/", 1)
+
+    status_msg = await update.message.reply_text("⏳ Dang lay lich su commits...", parse_mode=ParseMode.MARKDOWN)
+
+    try:
+        success, data = await github_agent.get_commits(owner, repo)
+        if success and isinstance(data, list):
+            msg = f"📝 Commit History — `{repo_path}`\n{'━' * 22}\n\n"
+            for i, commit in enumerate(data[:10], 1):
+                sha = commit.get("sha", "")[:7]
+                message = commit.get("commit", {}).get("message", "")[:50]
+                author = commit.get("commit", {}).get("author", {}).get("name", "Unknown")
+                date = commit.get("commit", {}).get("author", {}).get("date", "")[:10]
+                msg += f"{i}. `{sha}` — {message}...\n   👤 {author} 📅 {date}\n\n"
+
+            await status_msg.edit_text(msg, parse_mode=ParseMode.MARKDOWN)
+        else:
+            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
+            await status_msg.edit_text(f"❌ Loi:\n`{error[:400]}`", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def _git_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "❌ Cu phap: /git update <owner/repo> <path> (reply code)",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    repo_path = context.args[1]
+    file_path = context.args[2]
+
+    if "/" not in repo_path:
+        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    owner, repo = repo_path.split("/", 1)
+
+    content = ""
+    if update.message.reply_to_message and update.message.reply_to_message.text:
+        content = update.message.reply_to_message.text
+    elif len(context.args) > 3:
+        content = " ".join(context.args[3:])
+
+    if not content:
+        await update.message.reply_text("❌ Thieu noi dung! Reply code de update.", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    status_msg = await update.message.reply_text(
+        f"⏳ Dang update file...\n📝 `{file_path}`",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+    try:
+        success_get, data_get = await github_agent.get_file(owner, repo, file_path)
+        if not success_get:
+            await status_msg.edit_text(
+                f"❌ File khong ton tai: `{file_path}`\nDung /git push de tao moi.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+
+        sha = data_get.get("sha", "") if isinstance(data_get, dict) else ""
+
+        success, data = await github_agent.update_file(
+            owner, repo, file_path, content,
+            f"fix: update {file_path} via Denia Bot",
+            sha
+        )
+        if success:
+            await status_msg.edit_text(
+                f"✅ Da update file!\n\n"
+                f"📝 `{file_path}`\n"
+                f"📦 `{repo_path}`\n"
+                f"📊 Size: `{len(content)}` chars",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
+            await status_msg.edit_text(f"❌ Loi:\n`{error[:400]}`", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def _git_issue(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "❌ Cu phap: /git issue <owner/repo> <title> [body]",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    repo_path = context.args[1]
+    title = context.args[2]
+    body = " ".join(context.args[3:]) if len(context.args) > 3 else "Created via Denia Bot"
+
+    if "/" not in repo_path:
+        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    owner, repo = repo_path.split("/", 1)
+
+    status_msg = await update.message.reply_text("⏳ Dang tao issue...", parse_mode=ParseMode.MARKDOWN)
+
+    try:
+        success, data = await github_agent.create_issue(owner, repo, title, body)
+        if success:
+            issue_url = data.get("html_url", "") if isinstance(data, dict) else ""
+            issue_num = data.get("number", "") if isinstance(data, dict) else ""
+            await status_msg.edit_text(
+                f"✅ Issue da tao!\n\n"
+                f"🔢 #{issue_num}\n"
+                f"📝 `{title}`\n"
+                f"🔗 {issue_url}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
+            await status_msg.edit_text(f"❌ Loi:\n`{error[:400]}`", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def _git_release(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "❌ Cu phap: /git release <owner/repo> <tag> [name]",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    repo_path = context.args[1]
+    tag = context.args[2]
+    name = " ".join(context.args[3:]) if len(context.args) > 3 else f"Release {tag}"
+
+    if "/" not in repo_path:
+        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    owner, repo = repo_path.split("/", 1)
+
+    status_msg = await update.message.reply_text(f"⏳ Dang tao release {tag}...", parse_mode=ParseMode.MARKDOWN)
+
+    try:
+        success, data = await github_agent.create_release(owner, repo, tag, name)
+        if success:
+            release_url = data.get("html_url", "") if isinstance(data, dict) else ""
+            await status_msg.edit_text(
+                f"🎉 Release da tao!\n\n"
+                f"🏷 `{tag}`\n"
+                f"📝 `{name}`\n"
+                f"🔗 {release_url}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
+            await status_msg.edit_text(f"❌ Loi:\n`{error[:400]}`", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def _git_workflow(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "❌ Cu phap: /git workflow <owner/repo> <name>\n"
+            "Tao workflow CI mau. Dung /cicd de tao custom.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    repo_path = context.args[1]
+    name = context.args[2]
+
+    if "/" not in repo_path:
+        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    owner, repo = repo_path.split("/", 1)
+    workflow_content = generate_github_actions("python")
+
+    status_msg = await update.message.reply_text("⏳ Dang tao workflow...", parse_mode=ParseMode.MARKDOWN)
+
+    try:
+        success, data = await github_agent.create_workflow(owner, repo, name, workflow_content)
+        if success:
+            await status_msg.edit_text(
+                f"✅ Workflow da tao!\n\n"
+                f"⚙️ `.github/workflows/{name}.yml`\n"
+                f"📦 `{repo_path}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
+            await status_msg.edit_text(f"❌ Loi:\n`{error[:400]}`", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def _git_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text("❌ Cu phap: /git search <query>", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    query = " ".join(context.args[1:])
+    status_msg = await update.message.reply_text(f"🔍 Dang tim: `{query}`...", parse_mode=ParseMode.MARKDOWN)
+
+    try:
+        success, data = await github_agent.search_repos(query)
+        if success:
+            msg = f"🔍 Ket Qua Tim Kiem\n{'━' * 22}\n\n"
+            for i, repo in enumerate(data[:10], 1):
+                name = repo.get("full_name", "")
+                desc = repo.get("description", "") or "Khong co mo ta"
+                stars = repo.get("stargazers_count", 0)
+                lang = repo.get("language", "Unknown")
+                msg += f"{i}. ⭐ `{stars}` | `{name}`\n   📝 {desc[:60]}...\n   🔤 {lang}\n\n"
+            await status_msg.edit_text(msg, parse_mode=ParseMode.MARKDOWN)
+        else:
+            await status_msg.edit_text("❌ Khong tim thay ket qua.", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def _git_fork(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text("❌ Cu phap: /git fork <owner/repo>", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    repo_path = context.args[1]
+
+    if "/" not in repo_path:
+        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    owner, repo = repo_path.split("/", 1)
+
+    status_msg = await update.message.reply_text(f"⏳ Dang fork {repo_path}...", parse_mode=ParseMode.MARKDOWN)
+
+    try:
+        success, data = await github_agent.fork_repo(owner, repo)
+        if success:
+            fork_url = data.get("html_url", "") if isinstance(data, dict) else ""
+            await status_msg.edit_text(
+                f"✅ Da fork!\n\n📦 `{repo_path}`\n🔗 {fork_url}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            error = data.get("message", str(data)) if isinstance(data, dict) else str(data)
+            await status_msg.edit_text(f"❌ Loi:\n`{error[:400]}`", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+async def _git_star(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text("❌ Cu phap: /git star <owner/repo>", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    repo_path = context.args[1]
+
+    if "/" not in repo_path:
+        await update.message.reply_text("❌ Format: owner/repo", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    owner, repo = repo_path.split("/", 1)
+
+    try:
+        success, _ = await github_agent.star_repo(owner, repo)
+        if success:
+            await update.message.reply_text(f"⭐ Da star: `{repo_path}`", parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text("❌ Khong the star repo.", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Loi: `{str(e)[:400]}`", parse_mode=ParseMode.MARKDOWN)
+
+# ============================ AGENT MODE ============================
+
+async def agent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
+
+    if not context.args:
+        await update.message.reply_text(
+            "🤖 Agent Mode — Tu dong code & push GitHub\n"
+            f"{'━' * 26}\n\n"
+            "Cach dung:\n"
+            "/agent <mo ta cong viec>\n\n"
+            "Vi du:\n"
+            "• /agent Tao REST API FastAPI CRUD users\n"
+            "• /agent Viet bot Telegram python-telegram-bot\n"
+            "• /agent Tao script crawl Wikipedia\n\n"
+            "Quy trinh 5 buoc:\n"
+            "1️⃣ Phan tich & lap ke hoach\n"
+            "2️⃣ Viet code hoan chinh\n"
+            "3️⃣ Kiem tra syntax & security\n"
+            "4️⃣ Tao repo & push GitHub\n"
+            "5️⃣ Bao cao ket qua + link",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    task_description = " ".join(context.args)
+    task_id = generate_task_id()
+
+    task = AgentTask(
+        task_id=task_id,
+        description=task_description,
+        status="running"
+    )
+    state.agent_tasks.append(task)
+
+    status_msg = await update.message.reply_text(
+        f"🤖 Agent Task Bat Dau\n"
+        f"{'━' * 24}\n\n"
+        f"🆔 Task ID: `{task_id}`\n"
+        f"📝 Mo ta: {task_description[:100]}...\n\n"
+        f"⏳ Buoc 1/5: 📋 Phan tich yeu cau...\n"
+        f"`{build_progress_bar(1, 5)}`",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+    try:
+        session = context.bot_data.get('session')
+        if not session:
+            session = aiohttp.ClientSession()
+            context.bot_data['session'] = session
+
+        # Step 1: Plan
         task.status = "planning"
-        await _update_agent_status(status_msg, task, 2, 6, "📐 Lập kế hoạch kiến trúc...")
-
         plan_messages = [
-            {"role": "system", "content": SYSTEM_PROMPT_AGENT},
-            {"role": "user", "content": f"Task: {task.description}\n\nAnalysis: {analysis}\n\nCreate a detailed implementation plan with file structure. List every file to create and its purpose."}
+            {"role": "system", "content": AGENT_SYSTEM_PROMPT},
+            {"role": "user", "content": (
+                f"Task: {task_description}\n\n"
+                f"Hay lap ke hoach chi tiet:\n"
+                f"1. Files can tao\n"
+                f"2. Cau truc project\n"
+                f"3. Dependencies\n"
+                f"4. Cac buoc implement\n\n"
+                f"Tra loi ngan gon, bullet points."
+            )}
         ]
 
-        plan, plan_metrics = await StreamingHandler.agent_generate(
-            model_id, provider, plan_messages, "Lập kế hoạch", status_msg
+        plan_text, plan_metrics = await call_chat_api(
+            session, DEFAULT_AGENT_MODEL, plan_messages, status_msg,
+            system_prompt=AGENT_SYSTEM_PROMPT, max_tokens=2048
         )
-        task.add_checkpoint("plan", "success", {"plan": plan[:800]}, 
-                          int(plan_metrics.get('latency', 0) * 1000))
-        task.metrics['total_tokens'] = task.metrics.get('total_tokens', 0) + plan_metrics.get('output_tokens', 0)
+        task.plan = plan_text
+        task.cost_vnd += estimate_cost(DEFAULT_AGENT_MODEL, plan_metrics['input_tokens'], plan_metrics['output_tokens'])
 
-        # Step 3: CODE
+        # Step 2: Generate code
         task.status = "coding"
-        await _update_agent_status(status_msg, task, 3, 6, "💻 Viết code...")
+        await status_msg.edit_text(
+            f"🤖 Agent Task Dang Chay\n"
+            f"{'━' * 24}\n\n"
+            f"🆔 `{task_id}`\n"
+            f"⏳ Buoc 2/5: 💻 Viet code hoan chinh...\n"
+            f"`{build_progress_bar(2, 5)}`",
+            parse_mode=ParseMode.MARKDOWN
+        )
 
         code_messages = [
-            {"role": "system", "content": SYSTEM_PROMPT_AGENT},
-            {"role": "user", "content": f"Task: {task.description}\n\nPlan:\n{plan}\n\nNow write COMPLETE code for ALL files. Use exact <<<FILE:filename>>> format. Every file must be complete and runnable. Include error handling, logging, and comments."}
+            {"role": "system", "content": AGENT_SYSTEM_PROMPT},
+            {"role": "user", "content": (
+                f"Task: {task_description}\n\n"
+                f"Ke hoach:\n{plan_text}\n\n"
+                f"Hay viet code HOAN CHINH, day du, co the chay duoc ngay.\n"
+                f"Bao gom tat ca file, docstrings, error handling, requirements.txt, README.md.\n"
+                f"Format: Moi file bat dau bang `===FILENAME===`"
+            )}
         ]
 
-        code_text, code_metrics = await StreamingHandler.agent_generate(
-            model_id, provider, code_messages, "Viết code", status_msg
+        code_text, code_metrics = await call_chat_api(
+            session, DEFAULT_AGENT_MODEL, code_messages, status_msg,
+            system_prompt=AGENT_SYSTEM_PROMPT, max_tokens=MAX_OUTPUT_TOKENS
         )
-        task.metrics['total_tokens'] = task.metrics.get('total_tokens', 0) + code_metrics.get('output_tokens', 0)
+        task.cost_vnd += estimate_cost(DEFAULT_AGENT_MODEL, code_metrics['input_tokens'], code_metrics['output_tokens'])
 
-        # Step 4: PARSE & VALIDATE
-        task.status = "validating"
-        await _update_agent_status(status_msg, task, 4, 6, "🔍 Parse & kiểm tra syntax...")
+        # Step 3: Syntax & Security check
+        task.status = "reviewing"
+        await status_msg.edit_text(
+            f"🤖 Agent Task Dang Chay\n"
+            f"{'━' * 24}\n\n"
+            f"🆔 `{task_id}`\n"
+            f"⏳ Buoc 3/5: 🔍 Kiem tra syntax & security...\n"
+            f"`{build_progress_bar(3, 5)}`",
+            parse_mode=ParseMode.MARKDOWN
+        )
 
-        files = FileExtractor.extract(code_text)
+        files = {}
+        current_file = None
+        current_content = []
 
-        # Extract metadata if present
-        meta_match = re.search(r'<<<META>>>(.*?)<<<ENDMETA>>>', code_text, re.DOTALL | re.IGNORECASE)
-        if meta_match:
-            meta_text = meta_match.group(1)
-            for line in meta_text.split('\n'):
-                if ':' in line:
-                    key, val = line.split(':', 1)
-                    key = key.strip().lower()
-                    val = val.strip()
-                    if key == 'dependencies':
-                        task.dependencies = [d.strip() for d in val.split(',') if d.strip()]
-                    elif key == 'language':
-                        task.detected_language = val
+        for line in code_text.split('\n'):
+            if line.startswith('===') and line.endswith('==='):
+                if current_file and current_content:
+                    files[current_file] = '\n'.join(current_content)
+                current_file = line.replace('===', '').strip()
+                current_content = []
+            elif current_file is not None:
+                current_content.append(line)
 
-        if not files:
-            # Retry with stronger prompt
-            task.auto_retry_count += 1
-            if task.auto_retry_count <= Config.AGENT_MAX_RETRIES:
-                await _update_agent_status(status_msg, task, 4, 6, 
-                    f"⚠️ Parse lỗi, retry {task.auto_retry_count}/{Config.AGENT_MAX_RETRIES}...")
-
-                retry_messages = [
-                    {"role": "system", "content": SYSTEM_PROMPT_AGENT},
-                    {"role": "user", "content": f"Task: {task.description}\n\nCRITICAL: Your previous response could not be parsed. You MUST use EXACT format:\n<<<FILE:filename.py>>>\n[complete code]\n<<<ENDFILE>>>\n\nRewrite ALL files with this format."}
-                ]
-
-                code_text, _ = await StreamingHandler.agent_generate(
-                    model_id, provider, retry_messages, f"Retry {task.auto_retry_count}", status_msg
-                )
-                files = FileExtractor.extract(code_text)
+        if current_file and current_content:
+            files[current_file] = '\n'.join(current_content)
 
         if not files:
-            raise Exception("Could not parse any files from AI response after retries")
+            files = {"main.py": code_text}
 
-        # Auto-generate dependencies
-        if Config.AUTO_DEPENDENCY_DETECT:
-            extras = FileExtractor.auto_generate_dependencies(files)
-            files.update(extras)
+        syntax_issues = []
+        security_issues = []
+        for fname, fcontent in files.items():
+            if fname.endswith('.py'):
+                try:
+                    compile(fcontent, fname, 'exec')
+                except SyntaxError as e:
+                    syntax_issues.append(f"❌ {fname}: Line {e.lineno}: {e.msg}")
 
-        # Validate all files
-        all_issues = []
-        for fname, content in files.items():
-            issues = SyntaxValidator.validate(content, fname)
-            all_issues.extend(issues)
+                analysis = await agent_analyze_code(fcontent)
+                security_issues.extend(analysis["issues"])
 
-        critical = [i for i in all_issues if i['level'] == 'error']
-
-        task.add_checkpoint("validate", 
-                          "warning" if critical else "success",
-                          {"files": len(files), "errors": len(critical), "warnings": len([i for i in all_issues if i['level'] == 'warning'])},
-                          0)
-
-        # Step 5: AUTO-FIX (if critical errors)
-        if critical and task.auto_retry_count < Config.AGENT_MAX_RETRIES:
-            task.status = "fixing"
-            task.auto_retry_count += 1
-            await _update_agent_status(status_msg, task, 5, 6, 
-                f"🔧 Tự sửa {len(critical)} lỗi... (retry {task.auto_retry_count})")
+        # Auto-fix if issues found
+        if syntax_issues:
+            await status_msg.edit_text(
+                f"🤖 Agent Task Dang Chay\n"
+                f"{'━' * 24}\n\n"
+                f"🆔 `{task_id}`\n"
+                f"⚠️ Phat hien loi:\n"
+                f"{'\n'.join(syntax_issues[:3])}\n\n"
+                f"⏳ Buoc 3.5/5: 🔧 Tu dong sua loi...",
+                parse_mode=ParseMode.MARKDOWN
+            )
 
             fix_messages = [
-                {"role": "system", "content": SYSTEM_PROMPT_AGENT_FIX},
-                {"role": "user", "content": f"Fix these errors in the code:\n\n{SyntaxValidator.format_issues(critical)}\n\nOriginal task: {task.description}\n\nOutput ONLY corrected files using <<<FILE:>>> format."}
+                {"role": "system", "content": AGENT_SYSTEM_PROMPT},
+                {"role": "user", "content": (
+                    f"Code co loi:\n"
+                    f"{'\n'.join(syntax_issues)}\n\n"
+                    f"Hay sua lai. Giu format `===FILENAME===`. Chi tra code."
+                )}
             ]
 
-            fixed_code, _ = await StreamingHandler.agent_generate(
-                model_id, provider, fix_messages, "Sửa lỗi", status_msg
+            fixed_code, _ = await call_chat_api(
+                session, DEFAULT_AGENT_MODEL, fix_messages, status_msg,
+                system_prompt=AGENT_SYSTEM_PROMPT, max_tokens=MAX_OUTPUT_TOKENS
             )
-            fixed_files = FileExtractor.extract(fixed_code)
 
-            if fixed_files:
-                # Validate fixes
-                new_issues = []
-                for fname, content in fixed_files.items():
-                    new_issues.extend(SyntaxValidator.validate(content, fname))
-                new_critical = [i for i in new_issues if i['level'] == 'error']
+            files = {}
+            current_file = None
+            current_content = []
+            for line in fixed_code.split('\n'):
+                if line.startswith('===') and line.endswith('==='):
+                    if current_file and current_content:
+                        files[current_file] = '\n'.join(current_content)
+                    current_file = line.replace('===', '').strip()
+                    current_content = []
+                elif current_file is not None:
+                    current_content.append(line)
+            if current_file and current_content:
+                files[current_file] = '\n'.join(current_content)
+            if not files:
+                files = {"main.py": fixed_code}
 
-                if len(new_critical) <= len(critical) // 2:
-                    files = fixed_files
-                    all_issues = new_issues
-                    critical = new_critical
-
-        task.files_created = list(files.keys())
-        task.file_contents = files
-
-        # Step 6: DEPLOY
-        task.status = "deploying"
-        await _update_agent_status(status_msg, task, 6, 6, "📦 Deploying...")
-
-        metadata = {
-            "task_id": task.task_id,
-            "description": task.description,
-            "model": model_id,
-            "files": list(files.keys()),
-            "language": task.detected_language,
-            "dependencies": task.dependencies
-        }
-
-        deploy_results = []
-
-        if deploy_mode in ['local', 'both']:
-            try:
-                zip_path, zip_size = await PackageBuilder.create_package(
-                    task.task_id, files, metadata, task
-                )
-                task.local_path = str(zip_path)
-                deploy_results.append(f"📦 ZIP: `{zip_size/1024:.1f}KB`")
-            except Exception as e:
-                deploy_results.append(f"❌ ZIP failed: {str(e)[:50]}")
-                logging.error(f"ZIP creation failed: {e}")
-
-        if deploy_mode in ['github', 'both']:
-            try:
-                success, username = await github.verify_auth()
-                if success and username:
-                    repo_name = _generate_repo_name(task.description, user_id)
-                    task.repo_name = repo_name
-
-                    success_repo, repo_url = await github.create_repo(
-                        repo_name, f"Auto: {task.description[:120]}", private=False
-                    )
-
-                    if success_repo:
-                        success_push, final_url = await github.push_files(
-                            username, repo_name, files,
-                            f"Denia Agent: {task.description[:80]}"
-                        )
-                        if success_push:
-                            task.repo_url = final_url
-                            deploy_results.append(f"🌐 GitHub: [Link]({final_url})")
-                        else:
-                            deploy_results.append(f"⚠️ GitHub push partial: {final_url[:100]}")
-                    else:
-                        deploy_results.append(f"⚠️ GitHub repo: {repo_url[:100]}")
-                else:
-                    deploy_results.append("❌ GitHub auth failed — kiểm tra token")
-            except Exception as e:
-                deploy_results.append(f"❌ GitHub error: {str(e)[:50]}")
-                logging.error(f"GitHub deploy failed: {e}")
-
-        # Complete
-        task.status = "completed"
-        task.result = "success"
-        total_time = time.time() - start_time
-
-        state.usage.record(
-            task.metrics.get('input_tokens', 0),
-            task.metrics.get('total_tokens', 0),
-            total_time,
-            model_id,
-            TaskType.AGENT_TASK
+        # Step 4: Push to GitHub
+        task.status = "pushing"
+        await status_msg.edit_text(
+            f"🤖 Agent Task Dang Chay\n"
+            f"{'━' * 24}\n\n"
+            f"🆔 `{task_id}`\n"
+            f"⏳ Buoc 4/5: 🚀 Push len GitHub...\n"
+            f"`{build_progress_bar(4, 5)}`",
+            parse_mode=ParseMode.MARKDOWN
         )
-        state.usage.agent_tasks_completed += 1
-        state.add_note(f"Agent success: {task.description[:60]}", success=True)
-        SmartModelRouter.record_result(model_id, True, total_time)
 
-        # Build success message
-        file_list = "\n".join(f"• `{f}`" for f in task.files_created[:10])
-        if len(task.files_created) > 10:
-            file_list += f"\n• ... và {len(task.files_created)-10} file khác"
+        success_user, user_data = await github_agent.get_user()
+        if not success_user:
+            raise Exception("Khong the xac thuc GitHub token")
 
-        issues_summary = ""
-        if all_issues:
-            errors = len([i for i in all_issues if i['level'] == 'error'])
-            warns = len([i for i in all_issues if i['level'] == 'warning'])
-            if errors == 0:
-                issues_summary = f"\n🔍 *Kiểm tra:* `{warns}` warning(s)"
-            else:
-                issues_summary = f"\n⚠️ *Kiểm tra:* `{errors}` error(s), `{warns}` warning(s)"
-        else:
-            issues_summary = "\n✅ *Kiểm tra:* Không phát hiện lỗi"
+        github_username = user_data.get("login", "")
+        state.github_username = github_username
 
-        result_msg = f"""✅ *Agent Task Hoàn Thành\\!*
-{'━' * 25}
-🆔 `{task.task_id}`
-📝 {escape_md(task.description[:90])}{'...' if len(task.description) > 90 else ''}
+        repo_name = sanitize_repo_name(task_description[:40])
+        repo_name = repo_name or f"denia-agent-{task_id[:8]}"
 
-📁 *Files ({len(task.files_created)}):*
-{file_list}
-{issues_summary}
+        success_repo, repo_data = await github_agent.create_repo(
+            repo_name, f"Auto-generated by Denia Bot: {task_description[:100]}"
+        )
 
-📊 *Metrics:*
-• ⏱ Thời gian: `{total_time:.1f}s`
-• 📝 Tokens: `{task.metrics.get('total_tokens', 0):,}`
-• 🔄 Retries: `{task.auto_retry_count}`
-• 🤖 Model: `{model_id}`
-
-{'\n'.join(deploy_results)}
-
-💡 *Tip:* Dùng `/stats` để xem lịch sử"""
-
-        await status_msg.edit_text(result_msg, parse_mode=TPM.MARKDOWN_V2)
-
-        # Send ZIP if local
-        if task.local_path and os.path.exists(task.local_path):
-            with open(task.local_path, 'rb') as f:
-                bio = io.BytesIO(f.read())
-            bio.name = f"{task.task_id}.zip"
-            await update.message.reply_document(
-                document=bio,
-                caption=f"📦 {len(files)} files | {task.detected_language} | Denia Agent"
+        if not success_repo:
+            repo_name = f"{repo_name}-{task_id[:6]}"
+            success_repo, repo_data = await github_agent.create_repo(
+                repo_name, f"Auto-generated by Denia Bot: {task_description[:100]}"
             )
+
+        repo_full = f"{github_username}/{repo_name}"
+        task.repo_url = f"https://github.com/{repo_full}"
+
+        pushed_files = []
+        for fname, fcontent in files.items():
+            success_push, _ = await github_agent.create_file(
+                github_username, repo_name, fname, fcontent,
+                f"feat: add {fname} via Denia Bot"
+            )
+            if success_push:
+                pushed_files.append(fname)
+            await asyncio.sleep(0.5)
+
+        # Step 5: Report
+        task.status = "completed"
+        task.completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        task.files_created = pushed_files
+        state.stats.tasks_completed += 1
+
+        reflection = await agent_self_reflect(task, state)
+
+        total_latency = plan_metrics['latency'] + code_metrics['latency']
+        total_input = plan_metrics['input_tokens'] + code_metrics['input_tokens']
+        total_output = plan_metrics['output_tokens'] + code_metrics['output_tokens']
+
+        result_msg = (
+            f"✅ Agent Task Hoan Thanh!\n"
+            f"{'━' * 24}\n\n"
+            f"🆔 Task ID: `{task_id}`\n"
+            f"📝 Mo ta: {task_description[:80]}...\n\n"
+            f"📦 Repository:\n"
+            f"🔗 [{repo_full}](https://github.com/{repo_full})\n\n"
+            f"📁 Files da push ({len(pushed_files)}):\n"
+            f"{'\n'.join([f'• `{f}`' for f in pushed_files])}\n\n"
+            f"🔍 Syntax Check:\n"
+            f"{'✅ Tat ca file hop le' if not syntax_issues else '\n'.join(syntax_issues[:3])}\n\n"
+            f"🛡 Security:\n"
+            f"{'✅ Khong phat hien lo hong' if not security_issues else '\n'.join(security_issues[:3])}\n\n"
+            f"📊 AI Metrics:\n"
+            f"• ⏱ Latency: `{total_latency:.2f}s`\n"
+            f"• 📝 Input: `{total_input}` tok\n"
+            f"• 💬 Output: `{total_output}` tok\n"
+            f"• 💰 Cost: `{format_vnd(task.cost_vnd)}` VND\n\n"
+            f"{reflection}"
+        )
+
+        await status_msg.edit_text(result_msg, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=False)
+
+        full_code_text = f"# {task_description}\n# Repo: https://github.com/{repo_full}\n\n"
+        for fname, fcontent in files.items():
+            full_code_text += f"\n{'='*60}\n# FILE: {fname}\n{'='*60}\n\n{fcontent}\n"
+
+        bio = io.BytesIO(full_code_text.encode('utf-8'))
+        bio.name = f"agent_{task_id[:8]}_code.txt"
+        await update.message.reply_document(
+            document=bio,
+            caption=f"📄 Full source — {len(files)} files | 💰 {format_vnd(task.cost_vnd)} VND"
+        )
 
     except Exception as e:
         task.status = "failed"
         task.error = str(e)
-        task.error_details = traceback.format_exc()
-        total_time = time.time() - start_time
+        task.completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        state.stats.tasks_failed += 1
 
-        state.usage.agent_tasks_failed += 1
-        state.add_note(f"Agent failed: {task.description[:60]} — {str(e)[:80]}", success=False)
-        SmartModelRouter.record_result(task.model_used or state.current_model, False, total_time)
+        await status_msg.edit_text(
+            f"❌ Agent Task That Bai\n"
+            f"{'━' * 24}\n\n"
+            f"🆔 `{task_id}`\n"
+            f"⚠️ Loi: `{str(e)[:300]}`\n\n"
+            f"💡 Thu:\n"
+            f"• Kiem tra GitHub token\n"
+            f"• Don gian hoa yeu cau\n"
+            f"• Thu lai voi /agent\n\n"
+            f"🧠 AI da ghi nhan loi.",
+            parse_mode=ParseMode.MARKDOWN
+        )
 
-        logging.error(f"Agent task failed: {e}\n{traceback.format_exc()}")
+        await agent_self_reflect(task, state)
 
-        error_msg = f"""❌ *Agent Task Thất Bại*
-{'━' * 25}
-🆔 `{task.task_id}`
-⚠️ *Lỗi:* `{escape_md(str(e)[:200])}`
+async def agent_advanced_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = await get_user_state(user_id)
 
-📊 *Thông tin debug:*
-• ⏱ Thời gian: `{total_time:.1f}s`
-• 🔄 Retries: `{task.auto_retry_count}`
-• 🤖 Model: `{task.model_used or 'unknown'}`
+    if not context.args:
+        await update.message.reply_text(
+            "🤖 Advanced Agent\n"
+            f"{'━' * 22}\n\n"
+            "Giong /agent nhung co them:\n"
+            "• 🔍 Code review tu dong\n"
+            "• 🧪 Unit test generation\n"
+            "• 📚 Auto-documentation\n"
+            "• 🐳 Dockerfile generation\n"
+            "• ⚙️ CI/CD workflow\n\n"
+            "Cu phap: /agent_advanced <mo ta>",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
 
-💡 *Khắc phục:*
-• Mô tả task chi tiết hơn
-• Thử `/agent local` thay vì `github`
-• Kiểm tra kết nối mạng
-• Dùng `/reset` nếu lỗi liên tục"""
+    task_description = " ".join(context.args)
+    task_id = generate_task_id()
 
-        await status_msg.edit_text(error_msg, parse_mode=TPM.MARKDOWN_V2)
+    task = AgentTask(task_id=task_id, description=task_description, status="running")
+    state.agent_tasks.append(task)
 
-    finally:
-        await state_store.save_user(user_id)
+    status_msg = await update.message.reply_text(
+        f"🤖 Advanced Agent — 10 buoc\n"
+        f"{'━' * 24}\n"
+        f"🆔 `{task_id}`\n"
+        f"⏳ Bat dau...",
+        parse_mode=ParseMode.MARKDOWN
+    )
 
-async def _update_agent_status(msg: Message, task: AgentTask, step: int, total: int, text: str):
-    """Update agent progress message."""
-    progress_bar = "▓" * step + "░" * (total - step)
     try:
-        await msg.edit_text(
-            f"🤖 *Agent Task*\n"
-            f"`[{progress_bar}]` {step}/{total}\n"
-            f"{'━' * 20}\n"
-            f"🆔 `{task.task_id}`\n"
-            f"⏳ {escape_md(text)}\n\n"
-            f"⏱ Bắt đầu: {task.created_at[:16]}",
-            parse_mode=TPM.MARKDOWN_V2
+        session = context.bot_data.get('session')
+        if not session:
+            session = aiohttp.ClientSession()
+            context.bot_data['session'] = session
+
+        steps = [
+            ("📋 Phan tich", "plan"),
+            ("💻 Viet code", "code"),
+            ("🔍 Self-review", "review"),
+            ("🧪 Tao tests", "test"),
+            ("🛡 Security scan", "security"),
+            ("📚 Viet docs", "docs"),
+            ("🐳 Tao Dockerfile", "docker"),
+            ("⚙️ Tao CI/CD", "cicd"),
+            ("🚀 Push GitHub", "push"),
+            ("✅ Verify", "verify")
+        ]
+
+        for i, (label, key) in enumerate(steps[:2], 1):
+            await status_msg.edit_text(
+                f"🤖 Advanced Agent\n"
+                f"{'━' * 24}\n"
+                f"🆔 `{task_id}`\n"
+                f"⏳ Buoc {i}/10: {label}...\n"
+                f"`{build_progress_bar(i, 10)}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            await asyncio.sleep(1)
+
+        code_messages = [
+            {"role": "system", "content": AGENT_SYSTEM_PROMPT},
+            {"role": "user", "content": (
+                f"Task: {task_description}\n\n"
+                f"Viet code hoan chinh + README + requirements.txt.\n"
+                f"Format: `===FILENAME===`"
+            )}
+        ]
+        code_text, _ = await call_chat_api(session, DEFAULT_AGENT_MODEL, code_messages, status_msg, max_tokens=MAX_OUTPUT_TOKENS)
+
+        files = {}
+        current_file = None
+        current_content = []
+        for line in code_text.split('\n'):
+            if line.startswith('===') and line.endswith('==='):
+                if current_file and current_content:
+                    files[current_file] = '\n'.join(current_content)
+                current_file = line.replace('===', '').strip()
+                current_content = []
+            elif current_file is not None:
+                current_content.append(line)
+        if current_file and current_content:
+            files[current_file] = '\n'.join(current_content)
+        if not files:
+            files = {"main.py": code_text}
+
+        await status_msg.edit_text(
+            f"🤖 Advanced Agent\n"
+            f"{'━' * 24}\n"
+            f"🆔 `{task_id}`\n"
+            f"⏳ Buoc 3/10: 🔍 Self-review...",
+            parse_mode=ParseMode.MARKDOWN
         )
-    except BadRequest:
-        pass
-    except Exception:
-        pass
 
-def _select_agent_model(state: ConversationState, description: str) -> Tuple[str, str, str]:
-    """Select best model for agent task."""
-    if state.auto_model:
-        return SmartModelRouter.select_best_model(
-            description, state.history, state.budget_conscious, True
+        review_messages = [
+            {"role": "system", "content": "Ban la senior code reviewer. Review code sau va dua ra nhan xet chi tiet."},
+            {"role": "user", "content": f"Review code:\n\n```python\n{files.get('main.py', list(files.values())[0])[:3000]}\n```"}
+        ]
+        review_text, _ = await call_chat_api(session, "claude-sonnet-4.6", review_messages, status_msg, max_tokens=2048)
+        task.code_review = review_text
+
+        await status_msg.edit_text(
+            f"🤖 Advanced Agent\n"
+            f"{'━' * 24}\n"
+            f"🆔 `{task_id}`\n"
+            f"⏳ Buoc 4/10: 🧪 Tao unit tests...",
+            parse_mode=ParseMode.MARKDOWN
         )
-    return state.current_model, _get_model_display("agent", state.current_model), state.current_provider
 
-def _detect_project_language(desc: str, analysis: str) -> str:
-    """Detect primary programming language."""
-    text = (desc + " " + analysis).lower()
-    lang_map = {
-        'python': ['python', 'fastapi', 'flask', 'django', 'pandas', 'numpy', 'tensorflow'],
-        'javascript': ['javascript', 'node.js', 'nodejs', 'express', 'react', 'vue'],
-        'typescript': ['typescript', 'angular', 'nestjs', '.ts'],
-        'go': ['golang', 'go lang', 'gin', 'echo framework'],
-        'rust': ['rust', 'actix', 'rocket.rs'],
-        'java': ['java', 'spring boot', 'maven'],
-    }
-    scores = {lang: sum(1 for k in keywords if k in text) for lang, keywords in lang_map.items()}
-    if scores:
-        best = max(scores.items(), key=lambda x: x[1])
-        if best[1] > 0:
-            return best[0]
-    return 'python'
+        test_messages = [
+            {"role": "system", "content": "Viet pytest unit tests day du. Chi tra code."},
+            {"role": "user", "content": f"Code:\n```python\n{files.get('main.py', list(files.values())[0])[:2000]}\n```"}
+        ]
+        test_code, _ = await call_chat_api(session, "claude-sonnet-4.6", test_messages, status_msg, max_tokens=2048)
+        files["test_main.py"] = test_code.replace("```python", "").replace("```", "")
 
-def _generate_repo_name(desc: str, user_id: int) -> str:
-    """Generate clean repo name from description."""
-    words = re.findall(r'[a-zA-Z]+', desc.lower())
-    keywords = [w for w in words if len(w) > 2 and w not in 
-                {'the', 'and', 'for', 'with', 'create', 'make', 'build', 'using', 'use'}][:6]
+        for i, (label, key) in enumerate(steps[4:6], 5):
+            await status_msg.edit_text(
+                f"🤖 Advanced Agent\n"
+                f"{'━' * 24}\n"
+                f"🆔 `{task_id}`\n"
+                f"⏳ Buoc {i}/10: {label}...",
+                parse_mode=ParseMode.MARKDOWN
+            )
 
-    if keywords:
-        name = '-'.join(keywords)
-    else:
-        name = f"denia-project-{user_id % 10000}"
+        files["Dockerfile"] = generate_dockerfile("python")
+        files[".github/workflows/ci.yml"] = generate_github_actions("python")
 
-    # Clean
-    name = re.sub(r'[^a-z0-9-]', '-', name)
-    name = re.sub(r'-+', '-', name).strip('-')
+        await status_msg.edit_text(
+            f"🤖 Advanced Agent\n"
+            f"{'━' * 24}\n"
+            f"🆔 `{task_id}`\n"
+            f"⏳ Buoc 9/10: 🚀 Push GitHub...",
+            parse_mode=ParseMode.MARKDOWN
+        )
 
-    # GitHub repo name limits
-    if len(name) > 50:
-        name = name[:50].rsplit('-', 1)[0]
+        success_user, user_data = await github_agent.get_user()
+        github_username = user_data.get("login", "")
+        repo_name = sanitize_repo_name(task_description[:40]) or f"denia-adv-{task_id[:6]}"
 
-    # Ensure uniqueness with timestamp
-    name = f"{name}-{int(time.time()) % 10000}"
-    return name[:100] or f"denia-{int(time.time()) % 100000}"
+        await github_agent.create_repo(repo_name, f"Advanced project by Denia Bot: {task_description[:100]}")
 
-# ============================================================================
-# 💬 MESSAGE HANDLER
-# ============================================================================
+        pushed_files = []
+        for fname, fcontent in files.items():
+            success, _ = await github_agent.create_file(github_username, repo_name, fname, fcontent, f"feat: add {fname}")
+            if success:
+                pushed_files.append(fname)
+            await asyncio.sleep(0.5)
+
+        task.status = "completed"
+        task.completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        task.files_created = pushed_files
+        state.stats.tasks_completed += 1
+
+        result_msg = (
+            f"✅ Advanced Agent Hoan Thanh!\n"
+            f"{'━' * 24}\n\n"
+            f"🆔 `{task_id}`\n"
+            f"📦 `{github_username}/{repo_name}`\n"
+            f"🔗 https://github.com/{github_username}/{repo_name}\n\n"
+            f"📁 Files ({len(pushed_files)}):\n"
+            f"{'\n'.join([f'• `{f}`' for f in pushed_files])}\n\n"
+            f"🔍 Review:\n```\n{review_text[:500]}\n```"
+        )
+
+        await status_msg.edit_text(result_msg, parse_mode=ParseMode.MARKDOWN)
+
+    except Exception as e:
+        task.status = "failed"
+        task.error = str(e)
+        state.stats.tasks_failed += 1
+        await status_msg.edit_text(f"❌ Loi: `{str(e)[:300]}`", parse_mode=ParseMode.MARKDOWN)
+
+# ============================ MAIN MESSAGE HANDLER ============================
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
     user_id = update.effective_user.id
-    text = update.message.text.strip()
-    state = get_user_state(user_id)
+    user_input = update.message.text.strip()
+    state = await get_user_state(user_id)
 
-    # Rate limit
-    allowed, msg = await rate_limit_check(update)
-    if not allowed:
-        await update.message.reply_text(msg, parse_mode=TPM.MARKDOWN)
+    if not user_input:
         return
 
-    # Ignore commands
-    if text.startswith('/'):
-        return
+    mode = state.mode
+    model_id = state.current_model
+    mode_name = MODE_CONFIG[mode]["name"]
 
-    # Add to history
-    state.history.append({"role": "user", "content": text})
+    valid_models = [m[1] for m in MODE_CONFIG[mode]["models"]]
+    if model_id not in valid_models:
+        model_id = MODE_CONFIG[mode]["default"]
+        state.current_model = model_id
 
-    # Manage history size
-    if len(state.history) > Config.MAX_HISTORY * 2:
-        if Config.CONTEXT_COMPRESSION:
-            state.history = ContextCompressor.compress_history(state.history)
-        else:
-            state.history = state.history[-Config.MAX_HISTORY * 2:]
+    status_msg = await update.message.reply_text(
+        f"⏳ Dang khoi tao...\n"
+        f"🔄 Mode: {mode_name}\n"
+        f"🤖 Model: `{model_id}`",
+        parse_mode=ParseMode.MARKDOWN
+    )
 
-    # Typing indicator
     await context.bot.send_chat_action(
-        chat_id=update.effective_chat.id, 
+        chat_id=update.effective_chat.id,
         action=ChatAction.TYPING
     )
 
-    status_msg = await update.message.reply_text(
-        "⏳ *Đang suy nghĩ...*",
-        parse_mode=TPM.MARKDOWN
-    )
+    session = context.bot_data.get('session')
+    if not session:
+        session = aiohttp.ClientSession()
+        context.bot_data['session'] = session
 
     try:
-        # Select model
-        model_id = state.current_model
-        provider = state.current_provider
-
-        if state.auto_model:
-            model_id, display, provider = SmartModelRouter.select_best_model(
-                text, state.history, state.budget_conscious, Config.STREAMING_RESPONSES
-            )
-            state.last_model_suggestion = model_id
-
-        # Build messages
-        system_prompt = state.get_adaptive_prompt(
-            SYSTEM_PROMPT_CHAT if state.mode == 'chat' else SYSTEM_PROMPT_AGENT,
-            state.mode
-        )
-
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(state.get_recent_context(Config.MAX_HISTORY))
-
-        # Stream callback
-        async def stream_progress(preview: str):
-            try:
-                preview_clean = preview[-200:].replace('`', '').replace('*', '')
-                await status_msg.edit_text(
-                    f"🤖 *Đang trả lời...*\n\n`{preview_clean}`\n\n⏳ Đang gõ...",
-                    parse_mode=TPM.MARKDOWN
-                )
-            except:
-                pass
-
-        # Call API
-        response, metrics = await StreamingHandler.chat_complete(
-            model_id, provider, messages,
-            status_msg=status_msg,
-            progress_callback=stream_progress if Config.STREAMING_RESPONSES else None
-        )
-
-        # Update history
-        state.history.append({"role": "assistant", "content": response})
-
-        # Record usage
-        task_type = SmartModelRouter.detect_task_type(text, state.history)
-        state.usage.record(
-            metrics.get('input_tokens', 0),
-            metrics.get('output_tokens', 0),
-            metrics.get('latency', 0),
-            model_id,
-            task_type
-        )
-        SmartModelRouter.record_result(model_id, True, metrics.get('latency', 0))
-        state.add_note(f"Chat success: {text[:40]}", success=True)
-
-        # Format response
-        display = _get_model_display(state.mode, model_id)
-        header = f"🤖 *{display}*\n{'━' * 20}\n\n"
-        footer = f"\n\n⏱ `{metrics.get('latency', 0):.2f}s` | 📝 `{metrics.get('output_tokens', 0):,}` tokens"
-
-        if state.auto_model and state.last_model_suggestion:
-            footer += f" | 🎯 `{state.last_model_suggestion}`"
-
-        full_text = header + response + footer
-
-        # Delete status and send result
-        await status_msg.delete()
-        await send_long_message(update, full_text)
-
+        if mode == "chat":
+            await _handle_chat(update, context, state, model_id, user_input, status_msg, session)
+        elif mode == "agent":
+            await _handle_agent_chat(update, context, state, model_id, user_input, status_msg, session)
+        elif mode == "coder":
+            await _handle_coder_chat(update, context, state, model_id, user_input, status_msg, session)
+        elif mode == "embed":
+            await _handle_embed(update, context, state, model_id, user_input, status_msg, session)
+        elif mode == "tts":
+            await _handle_tts(update, context, state, model_id, user_input, status_msg, session)
+        elif mode == "vision":
+            await _handle_vision_chat(update, context, state, model_id, user_input, status_msg, session)
     except Exception as e:
-        logging.error(f"Message handler error: {e}\n{traceback.format_exc()}")
-        error_msg = f"""⚠️ *Lỗi xử lý*
-{'━' * 15}
-`{str(e)[:300]}`
-
-💡 *Thử:*
-• `/reset` để xóa lịch sử
-• `/models` đổi model khác
-• Kiểm tra kết nối mạng"""
-
+        logger.error(f"Error: {e}")
+        error_msg = (
+            f"⚠️ Loi xu ly\n"
+            f"{'━' * 15}\n"
+            f"`{str(e)[:400]}`\n\n"
+            f"💡 Thu: /reset hoac doi model/mode"
+        )
         try:
-            await status_msg.edit_text(error_msg, parse_mode=TPM.MARKDOWN)
-        except:
-            await update.message.reply_text(error_msg, parse_mode=TPM.MARKDOWN)
+            await status_msg.edit_text(error_msg, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
+            await update.message.reply_text(error_msg, parse_mode=ParseMode.MARKDOWN)
 
-        state.add_note(f"Chat error: {str(e)[:80]}", success=False)
-        SmartModelRouter.record_result(model_id, False)
+        state.last_error = str(e)
+        state.self_notes.append(f"Error in {mode} mode: {str(e)[:200]}")
 
-    finally:
-        await state_store.save_user(user_id)
+async def _handle_chat(update, context, state, model_id, user_input, status_msg, session):
+    state.history.append({"role": "user", "content": user_input})
+    if len(state.history) > MAX_HISTORY * 2:
+        state.history = state.history[-(MAX_HISTORY * 2):]
 
-# ============================================================================
-# 📋 MODEL CONFIGURATION
-# ============================================================================
+    branch = state.branches.get(state.current_branch_id)
+    if branch:
+        branch.messages = state.history.copy()
 
-MODE_CONFIG = {
-    "chat": {
-        "name": "💬 Chat",
-        "models": [
-            ("GLM", "z-ai/glm-5.1", "GLM-5.1", "nvidia"),
-            ("MiniMax", "minimax-m2.5-free", "MiniMax M2.5 Free", "opencode"),
-            ("MiniMax", "minimaxai/minimax-m2.7", "MiniMax M2.7", "nvidia"),
-            ("Mistral", "mistralai/mistral-large-3-675b-instruct-2512", "Mistral Large 3", "nvidia"),
-        ],
-        "default": Config.DEFAULT_CHAT_MODEL
-    },
-    "agent": {
-        "name": "🤖 Agent",
-        "models": [
-            ("MiniMax", "minimaxai/minimax-m2.7", "MiniMax M2.7", "nvidia"),
-            ("GLM", "z-ai/glm-5.1", "GLM-5.1", "nvidia"),
-            ("Mistral", "mistralai/mistral-large-3-675b-instruct-2512", "Mistral Large 3", "nvidia"),
-            ("MiniMax", "minimax-m2.5-free", "MiniMax M2.5 Free", "opencode"),
-        ],
-        "default": Config.DEFAULT_AGENT_MODEL
-    },
-}
+    system = SYSTEM_PROMPT
+    persona_notes = [n for n in state.self_notes if n.startswith("Persona:")]
+    if persona_notes:
+        system += f"\n\nPersona: {persona_notes[-1].replace('Persona: ', '')}"
 
-def _get_model_display(mode: str, model_id: str) -> str:
-    for cat, mid, display, provider in MODE_CONFIG.get(mode, {}).get("models", []):
-        if mid == model_id:
-            return f"{CATEGORY_EMOJI.get(cat, '⚪')} {display} ({PROVIDER_EMOJI.get(provider, '')})"
-    return model_id
+    messages = [{"role": "system", "content": system}] + state.history
 
-# ============================================================================
-# 🧹 MAINTENANCE TASKS
-# ============================================================================
+    ai_response, metrics = await call_chat_api(session, model_id, messages, status_msg, system_prompt=system)
 
-async def periodic_maintenance():
-    """Background maintenance: cleanup and save."""
-    while True:
-        try:
-            await asyncio.sleep(300)  # Every 5 minutes
+    state.history.append({"role": "assistant", "content": ai_response})
+    if len(state.history) > MAX_HISTORY * 2:
+        state.history = state.history[-(MAX_HISTORY * 2):]
 
-            # Save dirty states
-            if state_store._dirty:
-                await state_store._save()
+    if branch:
+        branch.messages = state.history.copy()
 
-            # Cleanup old tasks
-            state_store.cleanup_old_tasks(Config.ZIP_RETENTION_HOURS)
+    model_disp = get_model_display("chat", model_id)
+    header = f"🤖 {model_disp}\n{'━' * 20}\n\n"
+    footer = build_metrics_footer(metrics, state, model_id)
+    full_text = header + ai_response + footer
 
-            # Cleanup old ZIP files
-            cutoff = time.time() - Config.ZIP_RETENTION_HOURS * 3600
-            cleaned = 0
-            for zip_file in (Config.WORK_DIR / "zips").glob("*.zip"):
-                if zip_file.stat().st_mtime < cutoff:
-                    zip_file.unlink()
-                    cleaned += 1
+    try:
+        await status_msg.delete()
+    except Exception:
+        pass
 
-            if cleaned > 0:
-                logging.info(f"🗑️ Cleaned {cleaned} old ZIP files")
+    await send_long_text(update, full_text, filename="ai_response.txt")
 
-        except Exception as e:
-            logging.error(f"Maintenance error: {e}")
+async def _handle_agent_chat(update, context, state, model_id, user_input, status_msg, session):
+    state.history.append({"role": "user", "content": user_input})
+    if len(state.history) > MAX_HISTORY * 2:
+        state.history = state.history[-(MAX_HISTORY * 2):]
 
-# ============================================================================
-# 🚀 MAIN ENTRY POINT — FIXED EVENT LOOP
-# ============================================================================
+    branch = state.branches.get(state.current_branch_id)
+    if branch:
+        branch.messages = state.history.copy()
 
-async def main():
-    """Async main entry point with proper event loop handling."""
-    Config.init()
+    agent_context = AGENT_SYSTEM_PROMPT
+    if state.github_username:
+        agent_context += f"\n\nGitHub user: {state.github_username}"
+    if state.self_notes:
+        agent_context += f"\n\nLessons learned:\n" + "\n".join(state.self_notes[-5:])
 
-    # Platform-specific event loop policy (fixes Windows issues)
-    if platform.system() == 'Windows':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    messages = [{"role": "system", "content": agent_context}] + state.history
 
-    logging.info("🚀 Initializing Denia Bot v9.0 Pro...")
+    ai_response, metrics = await call_chat_api(
+        session, model_id, messages, status_msg,
+        system_prompt=agent_context, max_tokens=MAX_OUTPUT_TOKENS
+    )
 
-    # Build application
+    state.history.append({"role": "assistant", "content": ai_response})
+    if len(state.history) > MAX_HISTORY * 2:
+        state.history = state.history[-(MAX_HISTORY * 2):]
+
+    if branch:
+        branch.messages = state.history.copy()
+
+    model_disp = get_model_display("agent", model_id)
+    header = f"🤖 {model_disp} [AGENT MODE]\n{'━' * 20}\n\n"
+    footer = build_metrics_footer(metrics, state, model_id)
+    full_text = header + ai_response + footer
+
+    try:
+        await status_msg.delete()
+    except Exception:
+        pass
+
+    await send_long_text(update, full_text, filename="agent_response.txt")
+
+async def _handle_coder_chat(update, context, state, model_id, user_input, status_msg, session):
+    coder_prompt = (
+        "You are Denia Bot in CODER MODE. You are an expert software engineer.\n"
+        "Rules:\n"
+        "1. Always provide complete, runnable code\n"
+        "2. Include error handling and edge cases\n"
+        "3. Use best practices and design patterns\n"
+        "4. Explain complex logic with comments\n"
+        "5. Suggest optimizations when possible"
+    )
+
+    state.history.append({"role": "user", "content": user_input})
+    if len(state.history) > MAX_HISTORY * 2:
+        state.history = state.history[-(MAX_HISTORY * 2):]
+
+    messages = [{"role": "system", "content": coder_prompt}] + state.history
+
+    ai_response, metrics = await call_chat_api(
+        session, model_id, messages, status_msg,
+        system_prompt=coder_prompt, max_tokens=MAX_OUTPUT_TOKENS, temperature=0.3
+    )
+
+    state.history.append({"role": "assistant", "content": ai_response})
+    if len(state.history) > MAX_HISTORY * 2:
+        state.history = state.history[-(MAX_HISTORY * 2):]
+
+    model_disp = get_model_display("coder", model_id)
+    header = f"💻 {model_disp} [CODER MODE]\n{'━' * 20}\n\n"
+    footer = build_metrics_footer(metrics, state, model_id)
+    full_text = header + ai_response + footer
+
+    try:
+        await status_msg.delete()
+    except Exception:
+        pass
+
+    await send_long_text(update, full_text, filename="coder_response.txt")
+
+async def _handle_vision_chat(update, context, state, model_id, user_input, status_msg, session):
+    vision_prompt = (
+        "You are Denia Bot in VISION MODE. You can analyze and describe images in detail.\n"
+        "When discussing images, be precise about visual elements, colors, composition, and context."
+    )
+
+    state.history.append({"role": "user", "content": user_input})
+    if len(state.history) > MAX_HISTORY * 2:
+        state.history = state.history[-(MAX_HISTORY * 2):]
+
+    messages = [{"role": "system", "content": vision_prompt}] + state.history
+
+    ai_response, metrics = await call_chat_api(
+        session, model_id, messages, status_msg,
+        system_prompt=vision_prompt, max_tokens=4096
+    )
+
+    state.history.append({"role": "assistant", "content": ai_response})
+    if len(state.history) > MAX_HISTORY * 2:
+        state.history = state.history[-(MAX_HISTORY * 2):]
+
+    model_disp = get_model_display("vision", model_id)
+    header = f"👁 {model_disp} [VISION MODE]\n{'━' * 20}\n\n"
+    footer = build_metrics_footer(metrics, state, model_id)
+    full_text = header + ai_response + footer
+
+    try:
+        await status_msg.delete()
+    except Exception:
+        pass
+
+    await send_long_text(update, full_text, filename="vision_response.txt")
+
+async def _handle_embed(update, context, state, model_id, user_input, status_msg, session):
+    content, metrics, full_vector = await call_embed_api(session, model_id, user_input, status_msg)
+
+    footer = build_metrics_footer(metrics, state, model_id)
+    full_text = content + footer
+
+    try:
+        await status_msg.delete()
+    except Exception:
+        pass
+
+    try:
+        await update.message.reply_text(full_text, parse_mode=ParseMode.MARKDOWN)
+    except Exception:
+        await update.message.reply_text(full_text)
+
+    vector_bio = io.BytesIO(full_vector.encode('utf-8'))
+    vector_bio.name = f"embedding_{model_id.replace('/', '_')}.json"
+    await update.message.reply_document(
+        document=vector_bio,
+        caption=f"📄 Full embedding vector"
+    )
+
+async def _handle_tts(update, context, state, model_id, user_input, status_msg, session):
+    audio_bytes, metrics = await call_tts_api(session, model_id, user_input, status_msg)
+
+    footer_metrics = build_metrics_footer(metrics, state, model_id)
+
+    try:
+        await status_msg.delete()
+    except Exception:
+        pass
+
+    audio_bio = io.BytesIO(audio_bytes)
+    audio_bio.name = f"tts_{model_id.replace('/', '_')}.mp3"
+
+    model_disp = get_model_display("tts", model_id)
+    caption = (
+        f"🔊 Text-to-Speech\n"
+        f"🤖 Model: {model_disp}\n"
+        f"📝 Length: `{len(user_input)}` chars\n"
+        f"📦 Size: `{len(audio_bytes)}` bytes"
+    ) + footer_metrics
+
+    await update.message.reply_voice(
+        voice=audio_bio,
+        caption=caption,
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+# ============================ INLINE QUERY ============================
+
+async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.inline_query.query
+    if not query:
+        return
+
+    results = [
+        InlineQueryResultArticle(
+            id="1",
+            title="🤖 Hoi Denia Bot",
+            input_message_content=InputTextMessageContent(
+                f"🤖 Cau hoi: `{query}`\n\n⏳ Dang cho phan hoi...",
+                parse_mode=ParseMode.MARKDOWN
+            ),
+            description=f"Gui cau hoi: {query[:50]}..."
+        )
+    ]
+
+    await update.inline_query.answer(results, cache_time=0)
+
+# ============================ ERROR HANDLER ============================
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Update {update} caused error {context.error}")
+
+    if update and update.effective_user:
+        state = await get_user_state(update.effective_user.id)
+        error_str = str(context.error)[:300]
+        state.last_error = error_str
+        state.self_notes.append(f"System error [{datetime.now().strftime('%H:%M')}]: {error_str}")
+
+    if update and update.effective_message:
+        await update.effective_message.reply_text(
+            "😵 Da xay ra loi khong mong muon!\n"
+            "Vui long thu lai sau.\n\n"
+            "💡 Thu: /reset hoac /help",
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+# ============================ MAIN ============================
+
+async def post_init(application: Application):
+    application.bot_data['session'] = aiohttp.ClientSession()
+    await github_agent.init_session()
+
+    commands = [
+        BotCommand("start", "Khoi dong bot"),
+        BotCommand("help", "Huong dan day du"),
+        BotCommand("models", "Chon model AI"),
+        BotCommand("switch", "Doi model nhanh"),
+        BotCommand("mode", "Doi che do"),
+        BotCommand("agent", "Agent tu dong code"),
+        BotCommand("agent_advanced", "Agent nang cao"),
+        BotCommand("git", "GitHub commands"),
+        BotCommand("analyze", "Phan tich code"),
+        BotCommand("run", "Chay Python sandbox"),
+        BotCommand("docker", "Tao Dockerfile"),
+        BotCommand("cicd", "Tao GitHub Actions"),
+        BotCommand("diff", "So sanh code"),
+        BotCommand("testgen", "Tao unit test"),
+        BotCommand("search", "Tim kiem web"),
+        BotCommand("fetch", "Lay noi dung web"),
+        BotCommand("image", "Tao anh AI"),
+        BotCommand("tts", "Text-to-Speech"),
+        BotCommand("stt", "Speech-to-Text"),
+        BotCommand("vision", "Phan tich anh"),
+        BotCommand("kb", "Knowledge Base"),
+        BotCommand("branch", "Quan ly nhanh chat"),
+        BotCommand("remind", "Hen gio nhac nho"),
+        BotCommand("persona", "Dat tinh cach AI"),
+        BotCommand("settings", "Cai dat ca nhan"),
+        BotCommand("export", "Xuat du lieu"),
+        BotCommand("import", "Nhap du lieu"),
+        BotCommand("status", "Trang thai & chi phi"),
+        BotCommand("stats", "Thong ke chi tiet"),
+        BotCommand("tasks", "Lich su agent tasks"),
+        BotCommand("learn", "Ghi chu tu hoc"),
+        BotCommand("reset", "Xoa ngu canh"),
+    ]
+    await application.bot.set_my_commands(commands)
+    logger.info("✅ Denia Bot v5.0 initialized. Sessions created. Commands set.")
+
+async def post_shutdown(application: Application):
+    session = application.bot_data.get('session')
+    if session:
+        await session.close()
+    await github_agent.close()
+    logger.info("🛑 All sessions closed.")
+
+def main():
+    logger.info("🚀 Starting Denia Bot v5.0 Ultimate...")
+
     application = (
         ApplicationBuilder()
-        .token(Config.BOT_TOKEN)
+        .token(TELEGRAM_BOT_TOKEN)
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
         .concurrent_updates(True)
-        .get_updates_read_timeout(30)
-        .get_updates_write_timeout(30)
         .build()
     )
 
-    # Register handlers
-    application.add_handler(CommandHandler('start', cmd_start))
-    application.add_handler(CommandHandler('help', cmd_help))
-    application.add_handler(CommandHandler('models', cmd_models))
-    application.add_handler(CommandHandler('agent', cmd_agent))
-    application.add_handler(CommandHandler('stats', cmd_stats))
-    application.add_handler(CommandHandler('reset', cmd_reset))
-    application.add_handler(CommandHandler('style', cmd_style))
-    application.add_handler(CommandHandler('deploy', cmd_deploy))
+    # Core commands
+    application.add_handler(CommandHandler('start', start))
+    application.add_handler(CommandHandler('help', help_command))
+    application.add_handler(CommandHandler('models', show_models))
+    application.add_handler(CommandHandler('switch', switch_model_command))
+    application.add_handler(CommandHandler('mode', mode_command))
+    application.add_handler(CommandHandler('reset', reset_chat))
+    application.add_handler(CommandHandler('status', status_command))
+    application.add_handler(CommandHandler('stats', stats_command))
 
-    # Callback handler (consolidated)
-    application.add_handler(CallbackQueryHandler(handle_callback))
+    # Agent commands
+    application.add_handler(CommandHandler('agent', agent_command))
+    application.add_handler(CommandHandler('agent_advanced', agent_advanced_command))
+    application.add_handler(CommandHandler('git', git_command))
+    application.add_handler(CommandHandler('analyze', analyze_command))
+    application.add_handler(CommandHandler('run', run_command))
+    application.add_handler(CommandHandler('docker', docker_command))
+    application.add_handler(CommandHandler('cicd', cicd_command))
+    application.add_handler(CommandHandler('diff', diff_command))
+    application.add_handler(CommandHandler('testgen', testgen_command))
 
-    # Message handler
-    application.add_handler(MessageHandler(
-        filters.TEXT & (~filters.COMMAND), 
-        handle_message
-    ))
+    # Web & multimedia
+    application.add_handler(CommandHandler('search', search_command))
+    application.add_handler(CommandHandler('fetch', fetch_command))
+    application.add_handler(CommandHandler('image', image_command))
+    application.add_handler(CommandHandler('tts', tts_command))
+    application.add_handler(CommandHandler('stt', stt_command))
+    application.add_handler(CommandHandler('vision', vision_command))
 
-    # Error handler
-    async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        logging.error(f"Update {update} caused error: {context.error}")
+    # Knowledge & memory
+    application.add_handler(CommandHandler('kb', kb_command))
+    application.add_handler(CommandHandler('branch', branch_command))
+    application.add_handler(CommandHandler('remind', remind_command))
+    application.add_handler(CommandHandler('persona', persona_command))
+    application.add_handler(CommandHandler('settings', settings_command))
+    application.add_handler(CommandHandler('export', export_command))
+    application.add_handler(CommandHandler('import', import_command))
+    application.add_handler(CommandHandler('tasks', tasks_command))
+    application.add_handler(CommandHandler('learn', learn_command))
 
-        if update and update.effective_user:
-            state = get_user_state(update.effective_user.id)
-            state.add_note(f"System error: {str(context.error)[:150]}", success=False)
+    # Callbacks
+    application.add_handler(CallbackQueryHandler(model_callback, pattern="^model_"))
+    application.add_handler(CallbackQueryHandler(model_callback, pattern="^refresh_models"))
+    application.add_handler(CallbackQueryHandler(model_callback, pattern="^filter_"))
+    application.add_handler(CallbackQueryHandler(mode_callback, pattern="^setmode_"))
 
-        if update and update.effective_message:
-            try:
-                await update.effective_message.reply_text(
-                    "😵 *Đã xảy ra lỗi không mong muốn\\!*\n"
-                    "Vui lòng thử lại sau.\n\n"
-                    "💡 *Thử:* `/reset` hoặc `/help`",
-                    parse_mode=TPM.MARKDOWN_V2
-                )
-            except:
-                pass
+    # Inline
+    application.add_handler(InlineQueryHandler(inline_query))
 
+    # Messages
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
+    )
+
+    # Errors
     application.add_error_handler(error_handler)
 
-    # Post-init: start background tasks
-    async def post_init(app: Application):
-        app.bot_data['github'] = github
-        asyncio.create_task(periodic_maintenance())
-        logging.info("✅ Bot initialized. Background tasks started.")
-
-    # Post-shutdown: cleanup
-    async def post_shutdown(app: Application):
-        await github.close()
-        await state_store.force_save()
-        logging.info("🔒 Shutdown complete. All sessions closed.")
-
-    application.post_init = post_init
-    application.post_shutdown = post_shutdown
-
-    # Graceful shutdown handling
-    def signal_handler(sig, frame):
-        logging.info(f"Received signal {sig}, shutting down gracefully...")
-        raise KeyboardInterrupt
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    if platform.system() != 'Windows':
-        signal.signal(signal.SIGHUP, signal_handler)
-
-    logging.info("✅ Bot is running. Press Ctrl+C to stop.")
-
-    # Start polling
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling(drop_pending_updates=True)
-
-    # Keep running until interrupted
-    stop_event = asyncio.Event()
-    try:
-        await stop_event.wait()
-    except (KeyboardInterrupt, SystemExit):
-        pass
-    finally:
-        await application.updater.stop()
-        await application.stop()
-        await application.shutdown()
+    # Run
+    application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
-    # CRITICAL FIX: Use asyncio.run() to properly manage event loop
-    # This resolves "There is no current event loop in thread 'MainThread'"
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logging.info("👋 Bot stopped by user.")
-    except Exception as e:
-        logging.critical(f"Fatal error: {e}\n{traceback.format_exc()}")
-        sys.exit(1)
+    main()
